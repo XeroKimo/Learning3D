@@ -1,0 +1,6 @@
+[submodule "TypedD3D"]
+	path = TypedD3D
+	url = https://github.com/XeroKimo/TypedD3D
+[submodule "xkSDL2Wrapper"]
+	path = xkSDL2Wrapper
+	url = https://github.com/XeroKimo/xkSDL2Wrapper
