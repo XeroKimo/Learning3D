@@ -72,31 +72,35 @@ int main()
 			xk::Math::Vector<unsigned char, 4> color;
 		};
 
-		auto vertices = std::to_array<Vertex>(
-			{
-				{.position = { -0.5f, -0.5f, 0 }, .color = { 255, 0, 0, 255}},
-				{.position = { 0, 0.5f, 0 }, .color = {0, 255, 0, 255}},
-				{.position = { 0.5f, -0.5f, 0 }, .color = {0, 0, 255, 255}},
-			});
-
-		D3D11_BUFFER_DESC bufferDesc
-		{ 
-			.ByteWidth = sizeof(vertices),
-			.Usage = D3D11_USAGE_IMMUTABLE,
-			.BindFlags = D3D11_BIND_VERTEX_BUFFER,
-			.CPUAccessFlags = 0,
-			.MiscFlags = 0,
-			.StructureByteStride = 0
-		};
-
-		D3D11_SUBRESOURCE_DATA initialData
+		auto [vertexBuffer, vertexCount] = [&]
 		{
-			.pSysMem = &vertices,
-			.SysMemPitch = sizeof(Vertex),
-			.SysMemSlicePitch = 0
-		};
+			auto vertices = std::to_array<Vertex>(
+				{
+					{.position = { -0.5f, -0.5f, 0 }, .color = { 255, 0, 0, 255}},
+					{.position = { 0, 0.5f, 0 }, .color = {0, 255, 0, 255}},
+					{.position = { 0.5f, -0.5f, 0 }, .color = {0, 0, 255, 255}},
+				});
 
-		TypedD3D::Wrapper<ID3D11Buffer> vertexBuffer = device->CreateBuffer(bufferDesc, &initialData);
+			D3D11_BUFFER_DESC bufferDesc
+			{
+				.ByteWidth = sizeof(vertices),
+				.Usage = D3D11_USAGE_IMMUTABLE,
+				.BindFlags = D3D11_BIND_VERTEX_BUFFER,
+				.CPUAccessFlags = 0,
+				.MiscFlags = 0,
+				.StructureByteStride = 0
+			};
+
+			D3D11_SUBRESOURCE_DATA initialData
+			{
+				.pSysMem = &vertices,
+				.SysMemPitch = sizeof(Vertex),
+				.SysMemSlicePitch = 0
+			};
+
+			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), static_cast<UINT>(vertices.size()) };
+		}();
+
 		SDL2pp::Event event;
 		while(true)
 		{
@@ -117,7 +121,7 @@ int main()
 				deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				deviceContext->VSSetShader(vertexShader, nullptr);
 				deviceContext->PSSetShader(pixelShader, nullptr);
-				deviceContext->Draw(3, 0);
+				deviceContext->Draw(vertexCount, 0);
 				swapChain->Present(0, 0);
 			}
 		}
