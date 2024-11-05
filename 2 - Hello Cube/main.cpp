@@ -172,6 +172,8 @@ int main()
 		}();
 
 		xk::Math::Vector<float, 3> cameraPos{ 0, 0, -3 };
+		xk::Math::Vector<float, 3> cameraMovementDirection{ 0, 0, 0 };
+		float cameraSpeed = 4;
 		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.001f, 1000.f);
 		TypedD3D::Wrapper<ID3D11Buffer> cameraBuffer = [&]
 		{
@@ -231,11 +233,52 @@ int main()
 				{
 					break;
 				}
+				if(event.type == SDL2pp::EventType::SDL_KEYDOWN)
+				{
+					if(event.key.keysym.sym == SDLK_w)
+					{
+						cameraMovementDirection.Z() = 1;
+					}
+					if(event.key.keysym.sym == SDLK_s)
+					{
+						cameraMovementDirection.Z() = -1;
+					}
+					if(event.key.keysym.sym == SDLK_a)
+					{
+						cameraMovementDirection.X() = -1;
+					}
+					if(event.key.keysym.sym == SDLK_d)
+					{
+						cameraMovementDirection.X() = 1;
+					}
+				}
+				if(event.type == SDL2pp::EventType::SDL_KEYUP)
+				{
+					if(event.key.keysym.sym == SDLK_w)
+					{
+						cameraMovementDirection.Z() = 0;
+					}
+					if(event.key.keysym.sym == SDLK_s)
+					{
+						cameraMovementDirection.Z() = 0;
+					}
+					if(event.key.keysym.sym == SDLK_a)
+					{
+						cameraMovementDirection.X() = 0;
+					}
+					if(event.key.keysym.sym == SDLK_d)
+					{
+						cameraMovementDirection.X() = 0;
+					}
+				}
 			}
 			else
 			{
 				auto current = std::chrono::steady_clock::now();
 				auto delta = current - previous;
+
+				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
+
 				deviceContext->ClearRenderTargetView(backBuffer, { 0.2f, 0.3f, 0.3f, 1.0f });
 				deviceContext->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1, 0);
 				deviceContext->OMSetRenderTargets(backBuffer, dsv);
@@ -249,6 +292,7 @@ int main()
 					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
 					//objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 0, 0, 1 }), xk::Math::Degree<float>{ 90.f * 0.016f } };
 					objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
+					auto euler = objectRotation.ToEulerDegree();
 					auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
 					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
 					deviceContext->Unmap(objectBuffer, 0);
