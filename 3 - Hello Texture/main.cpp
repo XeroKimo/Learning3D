@@ -6,16 +6,30 @@
 #include <wrl/client.h>
 #include <array>
 #include <chrono>
+#include <SDL2/SDL_image.h>
 
 import TypedD3D11;
 import TypedDXGI;
 import xk.Math;
 import SDL2pp;
 
-#undef CreateWindow;
+#undef main
+#undef CreateWindow
 
 int main()
 {
+	struct SDLImageLifetime
+	{
+		SDLImageLifetime()
+		{
+			IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG);
+		}
+
+		~SDLImageLifetime()
+		{
+			IMG_Quit();
+		}
+	} init;
 	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("2 - Hello Cube", { 1280, 720 }, {});
 
 	Microsoft::WRL::ComPtr<ID3D11Debug> debugDevice;
@@ -39,7 +53,7 @@ int main()
 			nullptr);
 		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0));
 
-		std::array<D3D11_INPUT_ELEMENT_DESC, 2> elements
+		auto elements = std::to_array<D3D11_INPUT_ELEMENT_DESC>(
 		{
 			D3D11_INPUT_ELEMENT_DESC{
 				.SemanticName = "POSITION",
@@ -59,7 +73,16 @@ int main()
 				.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
 				.InstanceDataStepRate = 0
 			},
-		};
+			D3D11_INPUT_ELEMENT_DESC{
+				.SemanticName = "TEXCOORD",
+				.SemanticIndex = 0,
+				.Format = DXGI_FORMAT_R32G32_FLOAT,
+				.InputSlot = 0,
+				.AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT,
+				.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+				.InstanceDataStepRate = 0
+			},
+		});
 		Microsoft::WRL::ComPtr<ID3DBlob> blob;
 		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"VertexShader.hlsl", nullptr, nullptr, "main", "vs_5_0", {}, {}, &blob, nullptr));
 		TypedD3D::Wrapper<ID3D11InputLayout> layout = device->CreateInputLayout(elements, *blob.Get());
@@ -72,6 +95,7 @@ int main()
 		{
 			xk::Math::Vector<float, 3> position;
 			xk::Math::Vector<float, 3> normal;
+			xk::Math::Vector<float, 2> uv;
 		};
 
 		TypedD3D::Wrapper<ID3D11Buffer> vertexBuffer = [&]
@@ -91,32 +115,37 @@ int main()
 			static constexpr xk::Math::Vector<float, 3> up{ 0, 1, 0 };
 			static constexpr xk::Math::Vector<float, 3> forward{ 0, 0, 1 };
 
+			static constexpr xk::Math::Vector<float, 2> bluv{ 0, 1 };
+			static constexpr xk::Math::Vector<float, 2> bruv{ 1, 1 };
+			static constexpr xk::Math::Vector<float, 2> tluv{ 0, 0 };
+			static constexpr xk::Math::Vector<float, 2> truv{ 1, 0 };
+
 			auto vertices = std::to_array<Vertex>(
 				{
-					{ blf, -forward },
-					{ tlf, -forward },
-					{ trf, -forward },
-					{ brf, -forward },
-					{ blb, forward },
-					{ brb, forward },
-					{ trb, forward },
-					{ tlb, forward },
-					{ blf, -up },
-					{ brf, -up },
-					{ brb, -up },
-					{ blb, -up },
-					{ tlf, up },
-					{ tlb, up },
-					{ trb, up },
-					{ trf, up },
-					{ blf, -right },
-					{ blb, -right },
-					{ tlb, -right },
-					{ tlf, -right },
-					{ brf, right },
-					{ trf, right },
-					{ trb, right },
-					{ brb, right },
+					{ blf, -forward, bluv },
+					{ tlf, -forward, tluv },
+					{ trf, -forward, truv },
+					{ brf, -forward, bruv },
+					{ blb, forward, bluv },
+					{ brb, forward, tluv },
+					{ trb, forward, truv },
+					{ tlb, forward, bruv },
+					{ blf, -up, bluv },
+					{ brf, -up, tluv },
+					{ brb, -up, truv, },
+					{ blb, -up, bruv },
+					{ tlf, up, bluv },
+					{ tlb, up, tluv },
+					{ trb, up, truv },
+					{ trf, up, bruv },
+					{ blf, -right, bluv },
+					{ blb, -right, tluv },
+					{ tlb, -right, truv },
+					{ tlf, -right, bruv },
+					{ brf, right, bluv },
+					{ trf, right, tluv },
+					{ trb, right, truv},
+					{ brb, right, bruv },
 				});
 
 			D3D11_BUFFER_DESC bufferDesc
@@ -224,7 +253,7 @@ int main()
 		TypedD3D::Wrapper<ID3D11RasterizerState> rasterizerState = [&]
 		{
 			D3D11_RASTERIZER_DESC desc
-			{ 
+			{
 				.FillMode = D3D11_FILL_SOLID,
 				.CullMode = D3D11_CULL_BACK,
 				.FrontCounterClockwise = false,
@@ -239,7 +268,79 @@ int main()
 			return device->CreateRasterizerState(desc);
 		}();
 
+		TypedD3D::Wrapper<ID3D11ShaderResourceView> texture = [&]
+		{
+			SDL2pp::unique_ptr<SDL2pp::Surface> surface = IMG_Load("container.png");
+			auto error = SDL_GetError();
+			D3D11_TEXTURE2D_DESC desc
+			{
+				.Width = static_cast<UINT>(surface.get()->w),
+				.Height = static_cast<UINT>(surface.get()->h),
+				.MipLevels = 1,
+				.ArraySize = 1,
+				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+				.SampleDesc {.Count = 1},
+				.Usage = D3D11_USAGE_IMMUTABLE,
+				.BindFlags = D3D11_BIND_SHADER_RESOURCE,
+				.CPUAccessFlags = 0,
+				.MiscFlags = {}
+			};
 
+			D3D11_SUBRESOURCE_DATA data
+			{ 
+				.pSysMem = surface.get()->pixels,
+				.SysMemPitch = static_cast<UINT>(surface.get()->pitch),
+				.SysMemSlicePitch = static_cast<UINT>(surface.get()->pitch * surface.get()->h),
+			};
+
+			TypedD3D::Wrapper<ID3D11Texture2D> texture = device->CreateTexture2D(desc, &data);
+
+			return device->CreateShaderResourceView(texture, nullptr);
+		}();
+
+		TypedD3D::Wrapper<ID3D11ShaderResourceView> texture2 = [&]
+		{
+			SDL2pp::unique_ptr<SDL2pp::Surface> surface = IMG_Load("awesomeface.png");
+			auto error = SDL_GetError();
+			D3D11_TEXTURE2D_DESC desc
+			{
+				.Width = static_cast<UINT>(surface.get()->w),
+				.Height = static_cast<UINT>(surface.get()->h),
+				.MipLevels = 1,
+				.ArraySize = 1,
+				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+				.SampleDesc {.Count = 1},
+				.Usage = D3D11_USAGE_IMMUTABLE,
+				.BindFlags = D3D11_BIND_SHADER_RESOURCE,
+				.CPUAccessFlags = 0,
+				.MiscFlags = {}
+			};
+
+			D3D11_SUBRESOURCE_DATA data
+			{
+				.pSysMem = surface.get()->pixels,
+				.SysMemPitch = static_cast<UINT>(surface.get()->pitch),
+				.SysMemSlicePitch = static_cast<UINT>(surface.get()->pitch * surface.get()->h),
+			};
+
+			TypedD3D::Wrapper<ID3D11Texture2D> texture = device->CreateTexture2D(desc, &data);
+
+			return device->CreateShaderResourceView(texture, nullptr);
+		}();
+
+		TypedD3D::Wrapper<ID3D11SamplerState> linearSampler = device->CreateSamplerState(
+			{ 
+				.Filter = D3D11_FILTER_ANISOTROPIC,
+				.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP,
+				.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP,
+				.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP,
+				.MipLODBias = 0,
+				.MaxAnisotropy = 16,
+				.ComparisonFunc = D3D11_COMPARISON_NEVER,
+				.BorderColor = { 1, 1, 1, 1},
+				.MinLOD = -FLT_MAX,
+				.MaxLOD = FLT_MAX,
+			});
 
 		SDL2pp::Event event;
 		std::chrono::time_point previous = std::chrono::steady_clock::now();
@@ -326,6 +427,9 @@ int main()
 				deviceContext->VSSetConstantBuffers(0, cameraBuffer);
 				deviceContext->VSSetConstantBuffers(1, objectBuffer);
 				deviceContext->PSSetShader(pixelShader, nullptr);
+				deviceContext->PSSetSamplers(0, linearSampler);
+				deviceContext->PSSetShaderResources(0, texture);
+				deviceContext->PSSetShaderResources(1, texture2);
 				deviceContext->DrawIndexed(indexCount, 0, 0);
 				swapChain->Present(0, 0);
 				previous = current;
