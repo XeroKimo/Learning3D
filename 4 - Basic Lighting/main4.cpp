@@ -30,7 +30,7 @@ int main()
 			IMG_Quit();
 		}
 	} init;
-	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("2 - Hello Cube", { 1280, 720 }, {});
+	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("4 - Basic Lighting", { 1280, 720 }, {});
 
 	Microsoft::WRL::ComPtr<ID3D11Debug> debugDevice;
 
@@ -342,6 +342,61 @@ int main()
 				.MaxLOD = FLT_MAX,
 			});
 
+		struct PointLight
+		{
+			xk::Math::Vector<float, 3> lightPosition{ 0.0, 0.0, -4 };
+			float pad0{};
+			xk::Math::Vector<float, 3> lightColor{ 1, 1, 1 };
+			float pad1{};
+		};
+
+		PointLight pointLight;
+
+		TypedD3D::Wrapper<ID3D11Buffer> lightBuffer = [&]
+		{
+			D3D11_BUFFER_DESC bufferDesc
+			{
+				.ByteWidth = sizeof(xk::Math::Vector<float, 4>) * 2,
+				.Usage = D3D11_USAGE_DYNAMIC,
+				.BindFlags = D3D11_BIND_CONSTANT_BUFFER,
+				.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE,
+				.MiscFlags = 0,
+				.StructureByteStride = 0
+			};
+
+			D3D11_SUBRESOURCE_DATA data
+			{
+				.pSysMem = &pointLight,
+				.SysMemPitch = static_cast<UINT>(sizeof(pointLight)),
+				.SysMemSlicePitch = 0,
+			};
+
+			return device->CreateBuffer(bufferDesc, &data);
+		}();
+
+		TypedD3D::Wrapper<ID3D11Buffer> ambientLightBuffer = [&]
+		{
+			float ambientLight = 0.1f;
+			D3D11_BUFFER_DESC bufferDesc
+			{
+				.ByteWidth = sizeof(xk::Math::Vector<float, 4>),
+				.Usage = D3D11_USAGE_DYNAMIC,
+				.BindFlags = D3D11_BIND_CONSTANT_BUFFER,
+				.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE,
+				.MiscFlags = 0,
+				.StructureByteStride = 0
+			};
+
+			D3D11_SUBRESOURCE_DATA data
+			{
+				.pSysMem = &ambientLight,
+				.SysMemPitch = static_cast<UINT>(sizeof(ambientLight)),
+				.SysMemSlicePitch = 0,
+			};
+
+			return device->CreateBuffer(bufferDesc, &data);
+		}();
+
 		SDL2pp::Event event;
 		std::chrono::time_point previous = std::chrono::steady_clock::now();
 		while(true)
@@ -427,6 +482,8 @@ int main()
 				deviceContext->VSSetConstantBuffers(0, cameraBuffer);
 				deviceContext->VSSetConstantBuffers(1, objectBuffer);
 				deviceContext->PSSetShader(pixelShader, nullptr);
+				deviceContext->PSSetConstantBuffers(0, lightBuffer);
+				deviceContext->PSSetConstantBuffers(1, ambientLightBuffer);
 				deviceContext->PSSetSamplers(0, linearSampler);
 				deviceContext->PSSetShaderResources(0, texture);
 				deviceContext->PSSetShaderResources(1, texture2);

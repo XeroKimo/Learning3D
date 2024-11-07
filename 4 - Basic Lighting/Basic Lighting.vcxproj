@@ -21,10 +21,10 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{248e4b9d-1312-4a2f-9ca1-d00196ae47f6}</ProjectGuid>
+    <ProjectGuid>{778A2475-52D0-4D8D-A24B-370DFA1C5679}</ProjectGuid>
     <RootNamespace>HelloTriangle</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <ProjectName>1 - Hello Triangle</ProjectName>
+    <ProjectName>4 - Basic Lighting</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -151,7 +151,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main1.cpp" />
+    <ClCompile Include="main4.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\TypedD3D\TypedD3D\TypedD3D12.vcxproj">
@@ -159,6 +159,9 @@
     </ProjectReference>
     <ProjectReference Include="..\xkSDL2Wrapper\SDLWrapper\SDLWrapper.vcxproj">
       <Project>{b8b03f35-4ef4-4964-8993-b1801007c8b3}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\xkSDL2Wrapper\xkMath\xkMath\xkMath.vcxproj">
+      <Project>{68f6959a-8c53-4752-9cde-f5fcaea62413}</Project>
     </ProjectReference>
     <ProjectReference Include="TypedD3D\TypedD3D\TypedD3D12.vcxproj">
       <Project>{4c07b140-d4bd-40d4-be41-18e6aa4d78ef}</Project>
@@ -173,6 +176,7 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.0</ShaderModel>
     </FxCompile>
     <FxCompile Include="VertexShader.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
