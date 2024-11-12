@@ -344,12 +344,10 @@ int main()
 
 		struct PointLight
 		{
-			xk::Math::Vector<float, 3> lightPosition{ 0.0, 0.0, -4 };
-			float pad0{};
-			xk::Math::Vector<float, 3> lightColor{ 1, 1, 1 };
-			float pad1{};
+			alignas(16) xk::Math::Vector<float, 3> lightPosition{ 0.0, 0.0, -2 };
+			alignas(16) xk::Math::Vector<float, 3> lightColor{ 1, 1, 1 };
 		};
-
+		
 		PointLight pointLight;
 
 		TypedD3D::Wrapper<ID3D11Buffer> lightBuffer = [&]

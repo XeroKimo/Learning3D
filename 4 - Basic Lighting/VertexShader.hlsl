@@ -28,7 +28,7 @@ VSOutput main(VSInput input)
 	VSOutput output;
     output.worldPosition = mul(objectTransform, float4(input.position, 1));
     output.position = mul(viewProj, output.worldPosition);
-    output.normal = mul(objectTransform, float4(input.normal, 0));
+    output.normal = normalize(mul(objectTransform, float4(input.normal, 0)).xyz);
     output.uv = input.uv;
 	return output;
 }
