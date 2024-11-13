@@ -22,5 +22,9 @@
   <ItemGroup>
     <FxCompile Include="VertexShader.hlsl" />
     <FxCompile Include="PixelShader.hlsl" />
+    <FxCompile Include="LightDepthVS.hlsl" />
+    <FxCompile Include="LightDepthPS.hlsl" />
+    <FxCompile Include="DepthBufferRenderPS.hlsl" />
+    <FxCompile Include="DefaultVS.hlsl" />
   </ItemGroup>
 </Project>

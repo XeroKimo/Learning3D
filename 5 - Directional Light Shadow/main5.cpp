@@ -62,7 +62,7 @@ int main()
 			IMG_Quit();
 		}
 	} init;
-	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("4 - Basic Lighting", { 1280, 720 }, {});
+	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("5 - Directional Light Shadow", { 1280, 720 }, {});
 
 	Microsoft::WRL::ComPtr<ID3D11Debug> debugDevice;
 
@@ -120,8 +120,20 @@ int main()
 		TypedD3D::Wrapper<ID3D11InputLayout> layout = device->CreateInputLayout(elements, *blob.Get());
 		TypedD3D::Wrapper<ID3D11VertexShader> vertexShader = device->CreateVertexShader(*blob.Get(), nullptr);
 
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"DefaultVS.hlsl", nullptr, nullptr, "main", "vs_5_0", {}, {}, & blob, nullptr));
+		TypedD3D::Wrapper<ID3D11VertexShader> defaultVS = device->CreateVertexShader(*blob.Get(), nullptr);
+
 		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"PixelShader.hlsl", nullptr, nullptr, "main", "ps_5_0", {}, {}, &blob, nullptr));
 		TypedD3D::Wrapper<ID3D11PixelShader> pixelShader = device->CreatePixelShader(*blob.Get(), nullptr);
+
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"LightDepthVS.hlsl", nullptr, nullptr, "main", "vs_5_0", {}, {}, &blob, nullptr));
+		TypedD3D::Wrapper<ID3D11VertexShader> lightDepthVS = device->CreateVertexShader(*blob.Get(), nullptr);
+
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"LightDepthPS.hlsl", nullptr, nullptr, "main", "ps_5_0", {}, {}, &blob, nullptr));
+		TypedD3D::Wrapper<ID3D11PixelShader> lightDepthPS = device->CreatePixelShader(*blob.Get(), nullptr);
+
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"DepthBufferRenderPS.hlsl", nullptr, nullptr, "main", "ps_5_0", {}, {}, &blob, nullptr));
+		TypedD3D::Wrapper<ID3D11PixelShader> depthRenderPS = device->CreatePixelShader(*blob.Get(), nullptr);
 
 		struct Vertex
 		{
@@ -200,39 +212,6 @@ int main()
 			return device->CreateBuffer(bufferDesc, &initialData);
 		}();
 
-
-
-		auto [groundVertexBuffer, groundVertexCount] = [&]
-		{
-			Vertex bl{ { -5, 0, -5 }, { 0, 1, 0 }, { 0, 1 } };
-			Vertex tl{ { -5, 0,  5 }, { 0, 1, 0 }, { 0, 0 } };
-			Vertex tr{ {  5, 0,  5 }, { 0, 1, 0 }, { 1, 0 } };
-			Vertex br{ {  5, 0, -5 }, { 0, 1, 0 }, { 1, 1 } };
-			auto vertices = std::to_array<Vertex>({
-					bl, tl, tr,
-					bl, tr, br
-				});
-
-			D3D11_BUFFER_DESC bufferDesc
-			{
-				.ByteWidth = sizeof(vertices),
-				.Usage = D3D11_USAGE_IMMUTABLE,
-				.BindFlags = D3D11_BIND_VERTEX_BUFFER,
-				.CPUAccessFlags = 0,
-				.MiscFlags = 0,
-				.StructureByteStride = 0
-			};
-
-			D3D11_SUBRESOURCE_DATA initialData
-			{
-				.pSysMem = &vertices,
-				.SysMemPitch = sizeof(vertices),
-				.SysMemSlicePitch = 0
-			};
-
-			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), vertices.size() };
-		}();
-
 		auto [indexBuffer, indexCount] = [&]
 		{
 			auto indices = std::to_array<UINT32>(
@@ -265,23 +244,121 @@ int main()
 			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), static_cast<UINT>(indices.size()) };
 		}();
 
+		auto [groundVertexBuffer, groundVertexCount] = [&]
+		{
+			Vertex bl{ { -5, 0, -5 }, { 0, 1, 0 }, { 0, 1 } };
+			Vertex tl{ { -5, 0,  5 }, { 0, 1, 0 }, { 0, 0 } };
+			Vertex tr{ {  5, 0,  5 }, { 0, 1, 0 }, { 1, 0 } };
+			Vertex br{ {  5, 0, -5 }, { 0, 1, 0 }, { 1, 1 } };
+			auto vertices = std::to_array<Vertex>({
+					bl, tl, tr,
+					bl, tr, br
+				});
+
+			D3D11_BUFFER_DESC bufferDesc
+			{
+				.ByteWidth = sizeof(vertices),
+				.Usage = D3D11_USAGE_IMMUTABLE,
+				.BindFlags = D3D11_BIND_VERTEX_BUFFER,
+				.CPUAccessFlags = 0,
+				.MiscFlags = 0,
+				.StructureByteStride = 0
+			};
+
+			D3D11_SUBRESOURCE_DATA initialData
+			{
+				.pSysMem = &vertices,
+				.SysMemPitch = sizeof(vertices),
+				.SysMemSlicePitch = 0
+			};
+
+			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), vertices.size() };
+		}();
+
+		auto [quadVertexBuffer, quadVertexCount] = [&]
+		{
+			Vertex bl{ { -1, -1, 0 }, { 0, 0, -1 }, { 0, 1 } };
+			Vertex tl{ { -1, 1, 0 }, { 0, 0, -1 }, { 0, 0 } };
+			Vertex tr{ { 1, 1, 0 }, { 0, 0, -1 }, { 1, 0 } };
+			Vertex br{ { 1, -1, 0 }, { 0, 0, -1 }, { 1, 1 } };
+			auto vertices = std::to_array<Vertex>({
+					bl, tl, tr,
+					bl, tr, br
+				});
+
+			D3D11_BUFFER_DESC bufferDesc
+			{
+				.ByteWidth = sizeof(vertices),
+				.Usage = D3D11_USAGE_IMMUTABLE,
+				.BindFlags = D3D11_BIND_VERTEX_BUFFER,
+				.CPUAccessFlags = 0,
+				.MiscFlags = 0,
+				.StructureByteStride = 0
+			};
+
+			D3D11_SUBRESOURCE_DATA initialData
+			{
+				.pSysMem = &vertices,
+				.SysMemPitch = sizeof(vertices),
+				.SysMemSlicePitch = 0
+			};
+
+			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), vertices.size() };
+		}();
+
 		xk::Math::Vector<float, 3> cameraPos{ 0, 0, -3 };
 		xk::Math::Vector<float, 3> cameraMovementDirection{ 0, 0, 0 };
 		float cameraSpeed = 4;
-		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.001f, 1000.f);
+		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.1f, 10.f);
 		TypedD3D::Wrapper<ID3D11Buffer> cameraBuffer = CreateConstantBuffer<xk::Math::SquareMatrix<float, 4>>(device, projectionMatrix * xk::Math::TransformMatrix(-cameraPos));
 
 		xk::Math::Quaternion<float> objectRotation;
 		TypedD3D::Wrapper<ID3D11Buffer> objectBuffer = CreateConstantBuffer<xk::Math::SquareMatrix<float, 4>>(device, std::nullopt);
 
-		TypedD3D::Wrapper<ID3D11DepthStencilView> dsv = [&]
+		//TypedD3D::Wrapper<ID3D11DepthStencilView> dsv = [&]
+		//{
+		//	auto desc = backBuffer->GetResource<ID3D11Texture2D>()->GetDesc();
+		//	desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		//	desc.Format = DXGI_FORMAT_D32_FLOAT;
+		//	auto texture = device->CreateTexture2D(desc, nullptr);
+		//	return device->CreateDepthStencilView(texture);
+		//}();
+
+		auto [dsv, dsvr] = [&]
 		{
 			auto desc = backBuffer->GetResource<ID3D11Texture2D>()->GetDesc();
-			desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-			desc.Format = DXGI_FORMAT_D32_FLOAT;
-			auto texture = device->CreateTexture2D(desc, nullptr);
-			return device->CreateDepthStencilView(texture);
+			desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+			desc.Format = DXGI_FORMAT_R32_TYPELESS;
+			//D3D11_TEXTURE2D_DESC desc
+			//{
+			//	.Width = 1024,
+			//	.Height = 1024,
+			//	.MipLevels = 1,
+			//	.ArraySize = 1,
+			//	.Format = DXGI_FORMAT_R32_TYPELESS,
+			//	.SampleDesc = { 1, 0 },
+			//	.Usage = D3D11_USAGE_DEFAULT,
+			//	.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
+			//	.CPUAccessFlags = 0,
+			//	.MiscFlags = 0,
+			//};
+			auto texture = device->CreateTexture2D(desc);
+			D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc
+			{
+				.Format = DXGI_FORMAT_D32_FLOAT,
+				.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D,
+				.Flags = 0,
+				.Texture2D = { 0 },
+			};
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc
+			{
+				.Format = DXGI_FORMAT_R32_FLOAT,
+				.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D,
+				.Texture2D = { 0, 1 },
+			};
+			return std::pair{ device->CreateDepthStencilView(texture, &viewDesc), device->CreateShaderResourceView(texture, &srvDesc) };
 		}();
+
 		TypedD3D::Wrapper<ID3D11RasterizerState> rasterizerState = [&]
 		{
 			D3D11_RASTERIZER_DESC desc
@@ -298,6 +375,21 @@ int main()
 				.AntialiasedLineEnable = false,
 			};
 			return device->CreateRasterizerState(desc);
+		}();
+		TypedD3D::Wrapper<ID3D11DepthStencilState> depthState = [&]
+		{
+			D3D11_DEPTH_STENCIL_DESC desc
+			{
+				.DepthEnable = true,
+				.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL,
+				.DepthFunc = D3D11_COMPARISON_LESS,
+				.StencilEnable = false,
+				.StencilReadMask = 0xff,
+				.StencilWriteMask = 0xff,
+				.FrontFace = D3D11_STENCIL_OP_KEEP,
+				.BackFace = D3D11_STENCIL_OP_KEEP,
+			};
+			return device->CreateDepthStencilState(desc);
 		}();
 
 		TypedD3D::Wrapper<ID3D11ShaderResourceView> texture = [&]
@@ -415,6 +507,38 @@ int main()
 		TypedD3D::Wrapper<ID3D11Buffer> lightBuffer = CreateConstantBuffer<PointLight>(device, pointLight);
 		TypedD3D::Wrapper<ID3D11Buffer> ambientLightBuffer = CreateConstantBuffer<float>(device, 0.1f);
 
+		auto [lightDepthBuffer, lightDepthResource] = [&]
+		{
+			D3D11_TEXTURE2D_DESC desc
+			{
+				.Width = 1024,
+				.Height = 1024,
+				.MipLevels = 1,
+				.ArraySize = 1,
+				.Format = DXGI_FORMAT_R32_TYPELESS,
+				.SampleDesc = { 1, 0 },
+				.Usage = D3D11_USAGE_DEFAULT,
+				.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
+				.CPUAccessFlags = 0,
+				.MiscFlags = 0,
+			};
+			auto texture = device->CreateTexture2D(desc);
+			D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc
+			{
+				.Format = DXGI_FORMAT_D32_FLOAT,
+				.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D,
+				.Flags = 0,
+				.Texture2D = { 0 },
+			};
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc
+			{
+				.Format = DXGI_FORMAT_R32_FLOAT,
+				.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D,
+				.Texture2D = { 0, 1 },
+			};
+			return std::pair{ device->CreateDepthStencilView(texture, &viewDesc), device->CreateShaderResourceView(texture, &srvDesc) };
+		}();
+
 		SDL2pp::Event event;
 		std::chrono::time_point previous = std::chrono::steady_clock::now();
 		while(true)
@@ -469,22 +593,81 @@ int main()
 				auto current = std::chrono::steady_clock::now();
 				auto delta = current - previous;
 
+
+				objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
+
+				//{
+				//	deviceContext->ClearDepthStencilView(lightDepthBuffer, D3D11_CLEAR_DEPTH, 1, 0);
+				//	deviceContext->OMSetRenderTargets(nullptr, lightDepthBuffer);
+				//	deviceContext->OMSetDepthStencilState(depthState, 0xffffffff);
+				//	deviceContext->RSSetState(rasterizerState);
+				//	deviceContext->RSSetViewports({ .Width = 1280, .Height = 720, .MinDepth = 0, .MaxDepth = 1 });
+				//	deviceContext->IASetInputLayout(layout);
+
+				//	deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
+				//	deviceContext->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+				//	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				//	{
+				//		auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+				//		auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
+				//		std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+				//		deviceContext->Unmap(objectBuffer, 0);
+				//	}
+				//	{
+				//		auto subresource = deviceContext->Map(cameraBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+				//		auto cameraTransform = projectionMatrix * xk::Math::TransformMatrix(-cameraPos);
+				//		std::memcpy(subresource.pData, &cameraTransform, sizeof(cameraTransform));
+				//		deviceContext->Unmap(cameraBuffer, 0);
+				//	}
+
+				//	deviceContext->VSSetShader(lightDepthVS, nullptr);
+				//	deviceContext->VSSetConstantBuffers(2, cameraBuffer);
+				//	deviceContext->VSSetConstantBuffers(1, objectBuffer);
+				//	deviceContext->PSSetShader(lightDepthPS, nullptr);
+				//	deviceContext->PSSetConstantBuffers(0, lightBuffer);
+				//	deviceContext->PSSetConstantBuffers(1, ambientLightBuffer);
+				//	deviceContext->PSSetSamplers(0, linearSampler);
+				//	deviceContext->DrawIndexed(indexCount, 0, 0);
+
+				//	deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+				//	{
+				//		auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+				//		auto objectTransform = xk::Math::TransformMatrix<float>({ 0, -1, 0 });
+				//		std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+				//		deviceContext->Unmap(objectBuffer, 0);
+				//	}
+				//	deviceContext->PSSetShaderResources(0, woodTexture);
+				//	deviceContext->PSSetShaderResources(1, woodTexture);
+				//	deviceContext->Draw(groundVertexCount, 0);
+
+				//	deviceContext->IASetVertexBuffers(0, quadVertexBuffer, sizeof(Vertex), 0);
+				//	deviceContext->OMSetRenderTargets(backBuffer, nullptr);
+				//	deviceContext->VSSetShader(defaultVS, nullptr);
+				//	deviceContext->PSSetShader(depthRenderPS, nullptr);
+				//	deviceContext->PSSetShaderResources(0, lightDepthResource);
+				//	deviceContext->PSSetSamplers(0, linearSampler);
+				//	deviceContext->Draw(quadVertexCount, 0);
+
+				//	deviceContext->PSSetShaderResources(0, nullptr);
+				//}
 
 				deviceContext->ClearRenderTargetView(backBuffer, { 0.2f, 0.3f, 0.3f, 1.0f });
 				deviceContext->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1, 0);
-				deviceContext->OMSetRenderTargets(backBuffer, dsv);
+				deviceContext->OMSetDepthStencilState(depthState, 0xffffffff);
+				deviceContext->OMSetRenderTargets(nullptr, dsv);
+				//deviceContext->OMSetRenderTargets(backBuffer, dsv);
 				deviceContext->RSSetState(rasterizerState);
 				deviceContext->RSSetViewports({ .Width = 1280, .Height = 720, .MinDepth = 0, .MaxDepth = 1 });
 				deviceContext->IASetInputLayout(layout);
+
 				deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
 				deviceContext->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
 				deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 				{
 					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-					//objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 0, 0, 1 }), xk::Math::Degree<float>{ 90.f * 0.016f } };
-					objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 					auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
 					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
 					deviceContext->Unmap(objectBuffer, 0);
@@ -518,6 +701,16 @@ int main()
 				deviceContext->PSSetShaderResources(1, woodTexture);
 				deviceContext->Draw(groundVertexCount, 0);
 
+				deviceContext->OMSetRenderTargets(backBuffer, nullptr);
+				deviceContext->IASetVertexBuffers(0, quadVertexBuffer, sizeof(Vertex), 0);
+				deviceContext->OMSetRenderTargets(backBuffer, nullptr);
+				deviceContext->VSSetShader(defaultVS, nullptr);
+				deviceContext->PSSetShader(depthRenderPS, nullptr);
+				deviceContext->PSSetShaderResources(0, dsvr);
+				deviceContext->PSSetSamplers(0, linearSampler);
+				deviceContext->Draw(quadVertexCount, 0);
+
+				deviceContext->PSSetShaderResources(0, nullptr);
 				swapChain->Present(0, 0);
 				previous = current;
 			}
