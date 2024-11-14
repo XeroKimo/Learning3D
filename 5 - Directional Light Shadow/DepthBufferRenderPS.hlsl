@@ -11,11 +11,11 @@ SamplerState linearSampler : register(s0);
 
 float LinearizeDepth(float depth)
 {
-    //return depth;
-    float nearPlane = 0.1f;
-    float farPlane = 10.f;
-    float z = depth * 2 - 1;
-    return ((2 * nearPlane * farPlane) / (farPlane + nearPlane - z * (farPlane - nearPlane))) / farPlane;
+    return depth;
+    //float nearPlane = 0.1f;
+    //float farPlane = 10.f;
+    //float z = depth * 2 - 1;
+    //return ((2 * nearPlane * farPlane) / (farPlane + nearPlane - z * (farPlane - nearPlane))) / farPlane;
 }
 
 float4 main(VSOutput input) : SV_TARGET

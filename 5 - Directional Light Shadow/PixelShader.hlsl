@@ -4,6 +4,7 @@ struct VSOutput
     float4 worldPosition : POSITION;
 	float3 normal : NORMAL;
 	float2 uv : TEXCOORD;
+    float4 lightWorldPosition : Position2;
 };
 
 cbuffer PointLight : register(b0)
@@ -21,6 +22,18 @@ Texture2D albedo : register(t0);
 Texture2D albedo2 : register(t1);
 SamplerState linearSampler : register(s0);
 
+Texture2D shadowMap : register(t2);
+
+float ShadowCalculation(float4 position)
+{
+    float3 projectionCoordinates = position.xyz / position.w;
+    projectionCoordinates = projectionCoordinates * 0.5 + float3(0.5, 0.5, 0.5);
+    float closestDepth = shadowMap.Sample(linearSampler, projectionCoordinates.xy).x;
+    float currentDepth = projectionCoordinates.z;
+    
+    return currentDepth > closestDepth ? 1 : 0;
+}
+
 float4 main(VSOutput input) : SV_TARGET
 {
     float3 lightDirection = normalize(lightPosition - input.worldPosition.xyz);
@@ -29,5 +42,5 @@ float4 main(VSOutput input) : SV_TARGET
     float specularStrength = 0.5;
     float specular = pow(max(dot(lightDirection, reflection), 0), 32) * specularStrength;
     
-    return (albedo.Sample(linearSampler, input.uv) * 0.8 + albedo2.Sample(linearSampler, input.uv) * 0.2) * float4(lightColor, 1) * (ambientLight + diffuse + specular);
+    return (albedo.Sample(linearSampler, input.uv) * 0.8 + albedo2.Sample(linearSampler, input.uv) * 0.2) * float4(lightColor, 1) * (ambientLight + (1 - ShadowCalculation(input.lightWorldPosition)) * (diffuse + specular));
 }
