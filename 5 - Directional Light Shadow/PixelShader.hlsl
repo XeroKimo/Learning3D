@@ -27,8 +27,13 @@ Texture2D shadowMap : register(t2);
 float ShadowCalculation(float4 position)
 {
     float3 projectionCoordinates = position.xyz / position.w;
+    //Converting coordinates to NDC space
     projectionCoordinates = projectionCoordinates * 0.5 + float3(0.5, 0.5, 0.5);
+    //Sampling coordinates when compared to OpenGL is flipped on the y axis
+    projectionCoordinates.y = 1 - projectionCoordinates.y;
     float closestDepth = shadowMap.Sample(linearSampler, projectionCoordinates.xy).x;
+    
+    //The projection matrices used in this codebase already makes depth stay in NDC space so we don't need the projection coordinates values
     float currentDepth = projectionCoordinates.z;
     
     return currentDepth > closestDepth ? 1 : 0;

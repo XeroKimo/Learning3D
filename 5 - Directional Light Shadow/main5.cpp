@@ -499,13 +499,13 @@ int main()
 
 		struct PointLight
 		{
-			alignas(16) xk::Math::Vector<float, 3> lightPosition{ 0.0, 2, -3 };
+			alignas(16) xk::Math::Vector<float, 3> lightPosition{ 0.0, 5, -0.1f };
 			alignas(16) xk::Math::Vector<float, 3> lightColor{ 1, 1, 1 };
 		};
 		
 		PointLight pointLight;
 		//xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.1f, 10.f);
-		xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::OrthographicProjectionLH({ 20, 20 }, 0.1f, 10.f);
+		xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::OrthographicProjectionLH({ 20, 20 }, 0.1f, 20.f);
 
 		TypedD3D::Wrapper<ID3D11Buffer> lightBuffer = CreateConstantBuffer<PointLight>(device, pointLight);
 		TypedD3D::Wrapper<ID3D11Buffer> ambientLightBuffer = CreateConstantBuffer<float>(device, 0.2f);
@@ -515,8 +515,10 @@ int main()
 		{
 			D3D11_TEXTURE2D_DESC desc
 			{
-				.Width = 1024,
-				.Height = 1024,
+				.Width = 1280,
+				.Height = 720,
+				//.Width = 1024,
+				//.Height = 1024,
 				.MipLevels = 1,
 				.ArraySize = 1,
 				.Format = DXGI_FORMAT_R32_TYPELESS,
@@ -597,16 +599,29 @@ int main()
 				auto current = std::chrono::steady_clock::now();
 				auto delta = current - previous;
 
+				pointLight.lightPosition.X() = std::cos(std::chrono::duration<float>(current.time_since_epoch()).count()) * 3;
+				pointLight.lightPosition.Z() = std::sin(std::chrono::duration<float>(current.time_since_epoch()).count()) * 3;
 
-				objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
+				//objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
-
+				{
+					auto subresource = deviceContext->Map(lightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					std::memcpy(subresource.pData, &pointLight, sizeof(pointLight));
+					deviceContext->Unmap(lightBuffer, 0);
+				}
+				{
+					auto subresource = deviceContext->Map(lightProjectionMatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto lightMatrix = lightProjectionMatrix * xk::Math::LookAt(pointLight.lightPosition, {}, { 0, 1, 0 });
+					std::memcpy(subresource.pData, &lightMatrix, sizeof(lightMatrix));
+					deviceContext->Unmap(lightProjectionMatrixBuffer, 0);
+					
+				}
 				{
 					deviceContext->ClearDepthStencilView(lightDepthBuffer, D3D11_CLEAR_DEPTH, 1, 0);
 					deviceContext->OMSetRenderTargets(nullptr, lightDepthBuffer);
 					deviceContext->OMSetDepthStencilState(depthState, 0xffffffff);
 					deviceContext->RSSetState(rasterizerState);
-					deviceContext->RSSetViewports({ .Width = 1024, .Height = 1024, .MinDepth = 0, .MaxDepth = 1 });
+					//deviceContext->RSSetViewports({ .Width = 1024, .Height = 1024, .MinDepth = 0, .MaxDepth = 1 });
 					deviceContext->IASetInputLayout(layout);
 
 					deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
@@ -672,7 +687,8 @@ int main()
 				}
 				{
 					auto subresource = deviceContext->Map(cameraBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-					//auto cameraTransform = projectionMatrix * xk::Math::LookAt(pointLight.lightPosition + cameraPos, {}, { 0, 1, 0 });
+					//auto cameraTransform = lightProjectionMatrix * xk::Math::LookAt(pointLight.lightPosition/* + cameraPos*/, {}, { 0, 1, 0 });
+					//auto cameraTransform = projectionMatrix * xk::Math::LookAt(pointLight.lightPosition/* + cameraPos*/, {}, { 0, 1, 0 });
 					auto cameraTransform = projectionMatrix * xk::Math::TransformMatrix(-cameraPos);
 					std::memcpy(subresource.pData, &cameraTransform, sizeof(cameraTransform));
 					deviceContext->Unmap(cameraBuffer, 0);

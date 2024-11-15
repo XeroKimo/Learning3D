@@ -33,9 +33,9 @@ VSOutput main(VSInput input)
 {
 	VSOutput output;
     output.worldPosition = mul(objectTransform, float4(input.position, 1));
+    output.lightWorldPosition = mul(lightMatrix, output.worldPosition);
     output.position = mul(viewProj, output.worldPosition);
     output.normal = normalize(mul(objectTransform, float4(input.normal, 0)).xyz);
-    output.lightWorldPosition = mul(lightMatrix, output.worldPosition);
     output.uv = input.uv;
 	return output;
 }
