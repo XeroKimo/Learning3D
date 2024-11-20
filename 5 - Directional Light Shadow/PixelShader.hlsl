@@ -24,7 +24,7 @@ SamplerState linearSampler : register(s0);
 
 Texture2D shadowMap : register(t2);
 
-float ShadowCalculation(float4 position)
+float ShadowCalculation(float4 position, float3 normal, float3 lightDir)
 {
     float3 projectionCoordinates = position.xyz / position.w;
     //Converting coordinates to NDC space
@@ -34,9 +34,9 @@ float ShadowCalculation(float4 position)
     float closestDepth = shadowMap.Sample(linearSampler, projectionCoordinates.xy).x;
     
     //The projection matrices used in this codebase already makes depth stay in NDC space so we don't need the projection coordinates values
-    float currentDepth = projectionCoordinates.z;
-    
-    return currentDepth > closestDepth ? 1 : 0;
+    float currentDepth = position.z;
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    return currentDepth - bias > closestDepth ? 1 : 0;
 }
 
 float4 main(VSOutput input) : SV_TARGET
@@ -47,5 +47,5 @@ float4 main(VSOutput input) : SV_TARGET
     float specularStrength = 0.5;
     float specular = pow(max(dot(lightDirection, reflection), 0), 32) * specularStrength;
     
-    return (albedo.Sample(linearSampler, input.uv) * 0.8 + albedo2.Sample(linearSampler, input.uv) * 0.2) * float4(lightColor, 1) * (ambientLight + (1 - ShadowCalculation(input.lightWorldPosition)) * (diffuse + specular));
+    return (albedo.Sample(linearSampler, input.uv) * 0.8 + albedo2.Sample(linearSampler, input.uv) * 0.2) * float4(lightColor, 1) * (ambientLight + (1 - ShadowCalculation(input.lightWorldPosition, input.normal, lightDirection)) * (diffuse + specular));
 }

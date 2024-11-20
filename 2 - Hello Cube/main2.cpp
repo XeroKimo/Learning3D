@@ -37,7 +37,14 @@ int main()
 			},
 			nullptr,
 			nullptr);
-		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0));
+		D3D11_RENDER_TARGET_VIEW_DESC viewDesc
+		{
+			.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+			.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D,
+			.Texture2D = {.MipSlice = 0}
+		};
+
+		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0), &viewDesc);
 
 		std::array<D3D11_INPUT_ELEMENT_DESC, 2> elements
 		{

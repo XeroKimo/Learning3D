@@ -84,7 +84,14 @@ int main()
 			},
 			nullptr,
 			nullptr);
-		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0));
+		D3D11_RENDER_TARGET_VIEW_DESC viewDesc
+		{
+			.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+			.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D,
+			.Texture2D = {.MipSlice = 0}
+		};
+
+		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0), &viewDesc);
 
 		auto elements = std::to_array<D3D11_INPUT_ELEMENT_DESC>(
 		{
@@ -602,7 +609,7 @@ int main()
 				pointLight.lightPosition.X() = std::cos(std::chrono::duration<float>(current.time_since_epoch()).count()) * 3;
 				pointLight.lightPosition.Z() = std::sin(std::chrono::duration<float>(current.time_since_epoch()).count()) * 3;
 
-				//objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
+				objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
 				{
 					auto subresource = deviceContext->Map(lightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
