@@ -63,7 +63,7 @@ int main()
 			IMG_Quit();
 		}
 	} init;
-	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("5 - Directional Light Shadow", { 1280, 720 }, {});
+	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("6 - Point Light Shadow", { 1280, 720 }, {});
 
 	Microsoft::WRL::ComPtr<ID3D11Debug> debugDevice;
 
@@ -317,7 +317,7 @@ int main()
 		xk::Math::Vector<float, 3> cameraPos{ 0, 0, -3 };
 		xk::Math::Vector<float, 3> cameraMovementDirection{ 0, 0, 0 };
 		float cameraSpeed = 4;
-		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.1f, 10.f);
+		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.1f, 20.f);
 		TypedD3D::Wrapper<ID3D11Buffer> cameraBuffer = CreateConstantBuffer<xk::Math::SquareMatrix<float, 4>>(device, projectionMatrix * xk::Math::TransformMatrix(-cameraPos));
 
 		xk::Math::Quaternion<float> objectRotation;
@@ -506,48 +506,71 @@ int main()
 
 		struct PointLight
 		{
-			alignas(16) xk::Math::Vector<float, 3> lightPosition{ 0.0, 5, -0.1f };
+			alignas(16) xk::Math::Vector<float, 3> lightPosition{ 3.f, 5, 0.f };
 			alignas(16) xk::Math::Vector<float, 3> lightColor{ 1, 1, 1 };
 		};
 		
 		PointLight pointLight;
 		//xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.1f, 10.f);
-		xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::OrthographicProjectionLH({ 20, 20 }, 0.1f, 20.f);
+		//xk::Math::SquareMatrix<float, 4> lightProjectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 720.f, 0.1f, 20.f);
+
+		//Rotations are decided via the following https://learn.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-resources-textures-intro#2d-textures-and-2d-texture-arrays
+		std::array<xk::Math::SquareMatrix<float, 4>, 6> lightProjectionMatrices
+		{
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f) * xk::Math::Quaternion<float>{ {}, xk::Math::Degree<float>(-90), {}}.ToRotationMatrix(),
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f) * xk::Math::Quaternion<float>{ {}, xk::Math::Degree<float>(90), {}}.ToRotationMatrix(),
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f)* xk::Math::Quaternion<float>{ xk::Math::Degree<float>(90), {} , {}}.ToRotationMatrix(),
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f)* xk::Math::Quaternion<float>{ xk::Math::Degree<float>(-90), {}, {}}.ToRotationMatrix(),
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f) * xk::Math::Quaternion<float>{ {}, xk::Math::Degree<float>(0), {}}.ToRotationMatrix(),
+			xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 1280.f, 0.1f, 20.f) * xk::Math::Quaternion<float>{ {}, xk::Math::Degree<float>(180), {}}.ToRotationMatrix(),
+		};
+
+
 
 		TypedD3D::Wrapper<ID3D11Buffer> lightBuffer = CreateConstantBuffer<PointLight>(device, pointLight);
 		TypedD3D::Wrapper<ID3D11Buffer> ambientLightBuffer = CreateConstantBuffer<float>(device, 0.2f);
-		TypedD3D::Wrapper<ID3D11Buffer> lightProjectionMatrixBuffer = CreateConstantBuffer<xk::Math::SquareMatrix<float, 4>>(device, lightProjectionMatrix * xk::Math::LookAt(pointLight.lightPosition, {}, { 0, 1, 0 }));
+		TypedD3D::Wrapper<ID3D11Buffer> lightProjectionMatrixBuffer = CreateConstantBuffer<xk::Math::SquareMatrix<float, 4>>(device, lightProjectionMatrices[0] * xk::Math::TransformMatrix(pointLight.lightPosition));
 
-		auto [lightDepthBuffer, lightDepthResource] = [&]
+		auto [lightDepthBuffers, lightDepthResource] = [&]
 		{
+			static constexpr size_t arraySize = 6;
+
 			D3D11_TEXTURE2D_DESC desc
 			{
 				.Width = 1024,
 				.Height = 1024,
 				.MipLevels = 1,
-				.ArraySize = 1,
+				.ArraySize = arraySize,
 				.Format = DXGI_FORMAT_R32_TYPELESS,
 				.SampleDesc = { 1, 0 },
 				.Usage = D3D11_USAGE_DEFAULT,
 				.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
 				.CPUAccessFlags = 0,
-				.MiscFlags = 0,
+				.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE,
 			};
+
 			auto texture = device->CreateTexture2D(desc);
-			D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc
+
+			std::vector<TypedD3D::Wrapper<ID3D11DepthStencilView>> depthBuffers;
+			for(size_t i = 0; i < arraySize; i++)
 			{
-				.Format = DXGI_FORMAT_D32_FLOAT,
-				.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D,
-				.Flags = 0,
-				.Texture2D = { 0 },
-			};
+				D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc
+				{
+					.Format = DXGI_FORMAT_D32_FLOAT,
+					.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2DARRAY,
+					.Flags = 0,
+					.Texture2DArray = { 0, static_cast<UINT>(i), 1 },
+				};
+				depthBuffers.push_back(device->CreateDepthStencilView(texture, &viewDesc));
+			}
+
 			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc
 			{
 				.Format = DXGI_FORMAT_R32_FLOAT,
-				.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D,
-				.Texture2D = { 0, 1 },
+				.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURECUBE,
+				.TextureCube = { 0, 1 },
 			};
-			return std::pair{ device->CreateDepthStencilView(texture, &viewDesc), device->CreateShaderResourceView(texture, &srvDesc) };
+			return std::pair{ depthBuffers, device->CreateShaderResourceView(texture, &srvDesc) };
 		}();
 
 		SDL2pp::Event event;
@@ -609,56 +632,108 @@ int main()
 
 				objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
+
+
+				deviceContext->ClearState();
 				{
 					auto subresource = deviceContext->Map(lightBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
 					std::memcpy(subresource.pData, &pointLight, sizeof(pointLight));
 					deviceContext->Unmap(lightBuffer, 0);
 				}
 				{
-					auto subresource = deviceContext->Map(lightProjectionMatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-					auto lightMatrix = lightProjectionMatrix * xk::Math::LookAt(pointLight.lightPosition, {}, { 0, 1, 0 });
-					std::memcpy(subresource.pData, &lightMatrix, sizeof(lightMatrix));
-					deviceContext->Unmap(lightProjectionMatrixBuffer, 0);
-					
-				}
-				{
-					deviceContext->ClearDepthStencilView(lightDepthBuffer, D3D11_CLEAR_DEPTH, 1, 0);
-					deviceContext->OMSetRenderTargets(nullptr, lightDepthBuffer);
-					deviceContext->OMSetDepthStencilState(depthState, 0xffffffff);
-					deviceContext->RSSetState(rasterizerState);
-					deviceContext->RSSetViewports({ .Width = 1024, .Height = 1024, .MinDepth = 0, .MaxDepth = 1 });
-					deviceContext->IASetInputLayout(layout);
-
-					deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
-					deviceContext->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-					deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
+					for(size_t i = 0; i < lightDepthBuffers.size(); i++)
 					{
-						auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-						auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
-						std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
-						deviceContext->Unmap(objectBuffer, 0);
+						{
+							auto subresource = deviceContext->Map(lightProjectionMatrixBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto lightMatrix = lightProjectionMatrices[i] * xk::Math::TransformMatrix(-pointLight.lightPosition);
+							std::memcpy(subresource.pData, &lightMatrix, sizeof(lightMatrix));
+							deviceContext->Unmap(lightProjectionMatrixBuffer, 0);
+
+						}
+						deviceContext->ClearDepthStencilView(lightDepthBuffers[i], D3D11_CLEAR_DEPTH, 1, 0);
+						deviceContext->OMSetRenderTargets(nullptr, lightDepthBuffers[i]);
+						deviceContext->OMSetDepthStencilState(depthState, 0xffffffff);
+						deviceContext->RSSetState(rasterizerState);
+						deviceContext->RSSetViewports({ .Width = 1024, .Height = 1024, .MinDepth = 0, .MaxDepth = 1 });
+						deviceContext->IASetInputLayout(layout);
+
+						deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
+						deviceContext->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+						deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+
+						deviceContext->VSSetShader(lightDepthVS, nullptr);
+						deviceContext->VSSetConstantBuffers(2, lightProjectionMatrixBuffer);
+						deviceContext->VSSetConstantBuffers(1, objectBuffer);
+						deviceContext->PSSetShader(lightDepthPS, nullptr);
+						deviceContext->PSSetConstantBuffers(0, lightBuffer);
+						deviceContext->PSSetConstantBuffers(1, ambientLightBuffer);
+						deviceContext->PSSetSamplers(0, linearSampler);
+						deviceContext->DrawIndexed(indexCount, 0, 0);
+
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ -2, 3, 1} ) * objectRotation.ToRotationMatrix();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->DrawIndexed(indexCount, 0, 0);
+
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ 3, 1, -2 } ) * objectRotation.ToRotationMatrix();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->DrawIndexed(indexCount, 0, 0);
+
+
+						deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ 0, -1, 0 });
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->PSSetShaderResources(0, woodTexture);
+						deviceContext->PSSetShaderResources(1, woodTexture);
+						deviceContext->Draw(groundVertexCount, 0);
+
+						deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ 0, 4, 5 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ -90.f}, {}, {} }.ToRotationMatrix();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->Draw(groundVertexCount, 0);
+
+						deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ 5, 4, 0 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ 0 }, {}, { 90.f } }.ToRotationMatrix();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->Draw(groundVertexCount, 0);
+
+						deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+						{
+							auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+							auto objectTransform = xk::Math::TransformMatrix<float>({ -5, 4, 0 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ 0.f }, {}, { -90.f } }.ToRotationMatrix();
+							std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+							deviceContext->Unmap(objectBuffer, 0);
+						}
+						deviceContext->Draw(groundVertexCount, 0);
 					}
 
-					deviceContext->VSSetShader(lightDepthVS, nullptr);
-					deviceContext->VSSetConstantBuffers(2, lightProjectionMatrixBuffer);
-					deviceContext->VSSetConstantBuffers(1, objectBuffer);
-					deviceContext->PSSetShader(lightDepthPS, nullptr);
-					deviceContext->PSSetConstantBuffers(0, lightBuffer);
-					deviceContext->PSSetConstantBuffers(1, ambientLightBuffer);
-					deviceContext->PSSetSamplers(0, linearSampler);
-					deviceContext->DrawIndexed(indexCount, 0, 0);
-
-					deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
-					{
-						auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-						auto objectTransform = xk::Math::TransformMatrix<float>({ 0, -1, 0 });
-						std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
-						deviceContext->Unmap(objectBuffer, 0);
-					}
-					deviceContext->PSSetShaderResources(0, woodTexture);
-					deviceContext->PSSetShaderResources(1, woodTexture);
-					deviceContext->Draw(groundVertexCount, 0);
+					//Renders the light depth buffer
 
 					//deviceContext->IASetVertexBuffers(0, quadVertexBuffer, sizeof(Vertex), 0);
 					//deviceContext->RSSetViewports({ .Width = 1280, .Height = 720, .MinDepth = 0, .MaxDepth = 1 });
@@ -671,6 +746,8 @@ int main()
 
 					//deviceContext->PSSetShaderResources(0, nullptr);
 				}
+
+				deviceContext->ClearState();
 
 				deviceContext->ClearRenderTargetView(backBuffer, { 0.2f, 0.3f, 0.3f, 1.0f });
 				deviceContext->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1, 0);
@@ -693,6 +770,7 @@ int main()
 				{
 					auto subresource = deviceContext->Map(cameraBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
 					//auto cameraTransform = lightProjectionMatrix * xk::Math::LookAt(pointLight.lightPosition/* + cameraPos*/, {}, { 0, 1, 0 });
+					//auto cameraTransform = xk::Math::PerspectiveProjectionLH(xk::Math::Degree<float>{ 90 }, 1280.f / 720.f, 0.1f, 20.f)* xk::Math::Quaternion<float>{ xk::Math::Degree<float>(-90), {}, {}}.ToRotationMatrix() * xk::Math::TransformMatrix(-pointLight.lightPosition);
 					//auto cameraTransform = projectionMatrix * xk::Math::LookAt(pointLight.lightPosition/* + cameraPos*/, {}, { 0, 1, 0 });
 					auto cameraTransform = projectionMatrix * xk::Math::TransformMatrix(-cameraPos);
 					std::memcpy(subresource.pData, &cameraTransform, sizeof(cameraTransform));
@@ -712,6 +790,23 @@ int main()
 				deviceContext->PSSetShaderResources(2, lightDepthResource);
 				deviceContext->DrawIndexed(indexCount, 0, 0);
 
+
+				{
+					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto objectTransform = xk::Math::TransformMatrix<float>({ -2, 3, 1 }) * objectRotation.ToRotationMatrix();
+					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+					deviceContext->Unmap(objectBuffer, 0);
+				}
+				deviceContext->DrawIndexed(indexCount, 0, 0);
+
+				{
+					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto objectTransform = xk::Math::TransformMatrix<float>({ 3, 1, -2 }) * objectRotation.ToRotationMatrix();
+					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+					deviceContext->Unmap(objectBuffer, 0);
+				}
+				deviceContext->DrawIndexed(indexCount, 0, 0);
+
 				deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
 				{
 					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
@@ -723,7 +818,35 @@ int main()
 				deviceContext->PSSetShaderResources(1, woodTexture);
 				deviceContext->Draw(groundVertexCount, 0);
 
-				deviceContext->PSSetShaderResources(2, nullptr);
+				deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+				{
+					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto objectTransform = xk::Math::TransformMatrix<float>({ 0, 4, 5 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ -90.f}, {}, {} }.ToRotationMatrix() ;
+					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+					deviceContext->Unmap(objectBuffer, 0);
+				}
+				deviceContext->Draw(groundVertexCount, 0);
+
+				deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+				{
+					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto objectTransform = xk::Math::TransformMatrix<float>({ 5, 4, 0 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ 0 }, {}, { 90.f} }.ToRotationMatrix();
+					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+					deviceContext->Unmap(objectBuffer, 0);
+				}
+				deviceContext->Draw(groundVertexCount, 0);
+
+				deviceContext->IASetVertexBuffers(0, groundVertexBuffer, sizeof(Vertex), 0);
+				{
+					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
+					auto objectTransform = xk::Math::TransformMatrix<float>({ -5, 4, 0 }) * xk::Math::Quaternion<float>{ xk::Math::Degree<float>{ 0.f }, {}, { -90.f } }.ToRotationMatrix();
+					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
+					deviceContext->Unmap(objectBuffer, 0);
+				}
+				deviceContext->Draw(groundVertexCount, 0);
+				
+				//Renders the depth buffer
+				//deviceContext->PSSetShaderResources(2, nullptr);
 				//deviceContext->OMSetRenderTargets(backBuffer, nullptr);
 				//deviceContext->IASetVertexBuffers(0, quadVertexBuffer, sizeof(Vertex), 0);
 				//deviceContext->OMSetRenderTargets(backBuffer, nullptr);
