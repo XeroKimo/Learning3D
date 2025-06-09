@@ -84,8 +84,8 @@ int main()
 			auto vertices = std::to_array<Vertex>(
 				{
 					{.position = { -0.5f, -0.5f, 0 }, .color = { 255, 0, 0, 255}},
-					{.position = { 0, 0.5f, 0 }, .color = {0, 255, 0, 255}},
-					{.position = { 0.5f, -0.5f, 0 }, .color = {0, 0, 255, 255}},
+					{.position = { 0, 0.5f, 0 }, .color = {0, 0, 255, 255}},
+					{.position = { 0.5f, -0.5f, 0 }, .color = {0, 255, 0, 255}},
 				});
 
 			D3D11_BUFFER_DESC bufferDesc
