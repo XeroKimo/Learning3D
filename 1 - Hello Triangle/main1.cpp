@@ -38,7 +38,7 @@ int main()
 			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
 			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
 		};
-		
+
 
 		std::array<D3D12_INPUT_ELEMENT_DESC, 2> elements
 		{
@@ -103,18 +103,18 @@ int main()
 				}
 			},
 			.SampleMask = 0xff'ff'ff'ff,
-			.RasterizerState = 
-			{ 
-				.FillMode = D3D12_FILL_MODE_SOLID, 
+			.RasterizerState =
+			{
+				.FillMode = D3D12_FILL_MODE_SOLID,
 				.CullMode = D3D12_CULL_MODE_BACK,
 				.FrontCounterClockwise = false
 			},
-			.DepthStencilState{ .DepthEnable = false },
+			.DepthStencilState{.DepthEnable = false },
 			.InputLayout = { elements.data(), elements.size() },
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 			.NumRenderTargets = 1,
 			.RTVFormats = { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB },
-			.SampleDesc = { .Count = 1 }
+			.SampleDesc = {.Count = 1 }
 		};
 
 		TypedD3D12::Graphics<ID3D12PipelineState> pipeline = device->CreateGraphicsPipelineState(pipelineDesc);
@@ -125,7 +125,7 @@ int main()
 			xk::Math::Vector<float, 3> position;
 			xk::Math::Vector<unsigned char, 4> color;
 		};
-				
+
 		auto [vertexBuffer, vertexCount] = [&]
 		{
 			auto vertices = std::to_array<Vertex>(
@@ -134,66 +134,32 @@ int main()
 					{.position = { 0, 0.5f, 0 }, .color = {0, 0, 255, 255}},
 					{.position = { 0.5f, -0.5f, 0 }, .color = {0, 255, 0, 255}},
 				});
-				
-			D3D12_HEAP_PROPERTIES vertexHeap
+
+			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, TypedD3D::Wrapper<ID3D12Device>{ device });
+
+			TypedD3D::Wrapper<ID3D12Resource> vertexResource = xk::D3D12::CreateBuffer(device, vertexUpload);
+			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
 			{
-				.Type = D3D12_HEAP_TYPE_DEFAULT,
-				.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-				.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
-				.CreationNodeMask = 0,
-				.VisibleNodeMask = 0
-			};
 
-			D3D12_RESOURCE_DESC vertexDesc
-			{
-				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
-				.Alignment = 0,
-				.Width = static_cast<UINT>(vertices.size() * sizeof(Vertex)),
-				.Height = 1,
-				.DepthOrArraySize = 1,
-				.MipLevels = 1,
-				.Format = DXGI_FORMAT_UNKNOWN,
-				.SampleDesc = {.Count = 1, . Quality = 0},
-				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-				.Flags = D3D12_RESOURCE_FLAG_NONE
-			};
-				
-			TypedD3D::Wrapper<ID3D12Resource> vertexResource = device->CreateCommittedResource(
-				vertexHeap,
-				D3D12_HEAP_FLAG_NONE,
-				vertexDesc,
-				D3D12_RESOURCE_STATE_COPY_DEST,
-				nullptr);
+				xk::D3D12::UploadBuffer(commandList, vertexResource, vertexUpload);
+				D3D12_BARRIER_GROUP group;
+				group.NumBarriers = 1;
+				group.Type = D3D12_BARRIER_TYPE_BUFFER;
+				D3D12_BUFFER_BARRIER barrier = xk::D3D12::BufferBarrier(vertexResource.Get())
+					.Before(xk::D3D12::NoAccessBarrier())
+					.After(xk::D3D12::VertexBufferBarrier());
+				group.pBufferBarriers = &barrier;
 
-			TypedD3D::Wrapper<ID3D12Resource> vertexUpload = xk::D3D12::StageUploadBuffer(std::span{ vertices }, TypedD3D::Wrapper<ID3D12Device>{ device });
-
-			commandAllocators[0]->Reset();
-			commandList->Reset(commandAllocators[0], nullptr);
-			commandList->CopyBufferRegion(*vertexResource.Get(), 0, *vertexUpload.Get(), 0, sizeof(Vertex)* vertices.size());
-			D3D12_BARRIER_GROUP group;
-			group.NumBarriers = 1;
-			group.Type = D3D12_BARRIER_TYPE_BUFFER;
-			D3D12_BUFFER_BARRIER barrier{};
-			barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
-			barrier.SyncAfter = D3D12_BARRIER_SYNC_VERTEX_SHADING;
-			barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-			barrier.AccessAfter = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
-			barrier.pResource = vertexResource.Get();
-			barrier.Offset = 0;
-			barrier.Size = vertexDesc.Width;
-			group.pBufferBarriers = &barrier;
-
-			Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-			tempList.Get()->Release();
-			tempList->Barrier(1, &group);
-			
-			commandList->Close();
+				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
+				tempList.Get()->Release();
+				tempList->Barrier(1, &group);
+			});
 
 			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
-			swapChain.GetQueue().ExecuteCommandLists(TypedD3D::Span{ submitList });
+			swapChain.GetQueue().ExecuteCommandLists(submitList);
 			swapChain.GetQueue().GPUSignal();
 			swapChain.GetQueue().Flush();
-			//UpdateSubresources(commandList.Get(), vertexResource.Get(), vertexUpload.Get(), 0, 0, 1, &vertexData);
 
 			return std::pair{ vertexResource, vertices.size() };
 		}();
@@ -237,59 +203,39 @@ int main()
 				{
 					Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
 					tempList.Get()->Release();
-					commandAllocators[currentFrameIndex]->Reset();
-					commandList->Reset(commandAllocators[currentFrameIndex], nullptr);
 
-					D3D12_BARRIER_GROUP group;
-					group.NumBarriers = 1;
-					group.Type = D3D12_BARRIER_TYPE_TEXTURE;
-					D3D12_TEXTURE_BARRIER barrier{};
-					barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
-					barrier.SyncAfter = D3D12_BARRIER_SYNC_RENDER_TARGET;
-					barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-					barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
-					barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
-					barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-					barrier.pResource = swapChain.GetBackBuffer().Get();
-					group.pTextureBarriers = &barrier;
-					tempList->Barrier(1, &group);
+					xk::D3D12::Record(commandList, commandAllocators[currentFrameIndex].ToWrapper(), pipeline.Get()
+						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+					{
+						D3D12_BARRIER_GROUP group;
+						group.NumBarriers = 1;
+						group.Type = D3D12_BARRIER_TYPE_TEXTURE;
 
-					commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
-					commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, nullptr);
-					commandList->SetPipelineState(pipeline.Get());
-					commandList->SetGraphicsRootSignature(nullSignature.Get());
-					commandList->RSSetViewports(std::span(&viewport, 1));
-					commandList->RSSetScissorRects(std::span(&rect, 1));
-					commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-					commandList->IASetVertexBuffers(0, std::span(&vertexBufferView, 1));
-					commandList->DrawInstanced(3, 1, 0, 0);
+						D3D12_TEXTURE_BARRIER barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
+							.Before(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON))
+							.After(xk::D3D12::RenderTargetTextureBarrier());
+						group.pTextureBarriers = &barrier;
+						tempList->Barrier(1, &group);
 
-					barrier.SyncBefore = D3D12_BARRIER_SYNC_RENDER_TARGET;
-					barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
-					barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
-					barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
-					barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-					barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_PRESENT;
-					barrier.pResource = swapChain.GetBackBuffer().Get();
-					group.pTextureBarriers = &barrier;
-					tempList->Barrier(1, &group);
+						commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
+						commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, nullptr);
+						commandList->SetGraphicsRootSignature(nullSignature.Get());
+						commandList->RSSetViewports(std::span(&viewport, 1));
+						commandList->RSSetScissorRects(std::span(&rect, 1));
+						commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						commandList->IASetVertexBuffers(0, std::span(&vertexBufferView, 1));
+						commandList->DrawInstanced(3, 1, 0, 0);
 
+						barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
+							.Before(xk::D3D12::RenderTargetTextureBarrier())
+							.After(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON));
+						group.pTextureBarriers = &barrier;
+						tempList->Barrier(1, &group);
+					});
 
-					commandList->Close();
 					TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
 					queue.ExecuteCommandLists(TypedD3D::Span{ submitList });
-
 				});
-				//				//deviceContext->ClearRenderTargetView(backBuffer, { 0.2f, 0.3f, 0.3f, 1.0f });
-				//				//deviceContext->OMSetRenderTargets(backBuffer, nullptr);
-				//				//deviceContext->RSSetViewports({ .Width = 1280, .Height = 720, .MinDepth = 0, .MaxDepth = 1 });
-				//				//deviceContext->IASetInputLayout(layout);
-				//				//deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
-				//				//deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-				//				//deviceContext->VSSetShader(vertexShader, nullptr);
-				//				//deviceContext->PSSetShader(pixelShader, nullptr);
-				//				//deviceContext->Draw(vertexCount, 0);
-				//				//swapChain->Present(0, 0);
 			}
 		}
 	}
