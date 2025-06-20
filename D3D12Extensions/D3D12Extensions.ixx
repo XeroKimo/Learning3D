@@ -321,6 +321,70 @@ namespace xk::D3D12
 		CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT>& GetQueue() { return *associatedQueue; }
 	};
 
+	export class ConstantBuffer
+	{
+		TypedD3D::Wrapper<ID3D12Resource> resource;
+		std::byte* begin;
+		std::byte* current;
+		std::size_t size;
+
+	public:
+		ConstantBuffer(TypedD3D::Wrapper<ID3D12Device> device, std::size_t size) :
+			resource{ [&] 
+		{
+			D3D12_HEAP_PROPERTIES heapProperties
+			{
+				.Type = D3D12_HEAP_TYPE_UPLOAD,
+				.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+				.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
+				.CreationNodeMask = 0,
+				.VisibleNodeMask = 0
+			};
+
+			D3D12_RESOURCE_DESC description
+			{
+				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+				.Alignment = 0,
+				.Width = size,
+				.Height = 1,
+				.DepthOrArraySize = 1,
+				.MipLevels = 1,
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.SampleDesc = {.Count = 1, . Quality = 0},
+				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+				.Flags = D3D12_RESOURCE_FLAG_NONE
+			};
+
+			return device->CreateCommittedResource(heapProperties,
+				D3D12_HEAP_FLAG_NONE,
+				description,
+				D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+			nullptr);
+
+		}() },
+			begin{ resource->Map(0, nullptr) },
+			current{ begin },
+			size{ size }
+		{
+
+		}
+
+		template<class Ty>
+			requires std::is_trivially_copyable_v<Ty>
+		D3D12_GPU_VIRTUAL_ADDRESS Upload(const Ty& value)
+		{
+			constexpr std::size_t alignment = 256;
+			if (current - begin + sizeof(Ty) >= size)
+			{
+				current = begin;
+			}
+			D3D12_GPU_VIRTUAL_ADDRESS placedAddress = resource->GetGPUVirtualAddress() + (current - begin);
+			std::memcpy(current, &value, sizeof(Ty));
+			current += (sizeof(Ty) + alignment - 1) & ~(alignment - 1);
+
+			return placedAddress;
+		}
+	};
 
 
 	export struct StagedBufferUpload
@@ -467,13 +531,6 @@ namespace xk::D3D12
 		return UploadBuffer(commandList, CreateBuffer(commandList->GetDevice(), stagedUpload), stagedUpload);
 	}
 
-	export enum class RenderTargetBarrierSync
-	{
-		All = D3D12_BARRIER_SYNC_ALL,
-		Draw = D3D12_BARRIER_SYNC_DRAW,
-		RenderTarget = D3D12_BARRIER_SYNC_RENDER_TARGET
-	};
-
 	export enum class BeforeTag {};
 	export enum class AfterTag {};
 
@@ -613,6 +670,14 @@ namespace xk::D3D12
 		};
 	}
 
+
+	export enum class RenderTargetBarrierSync
+	{
+		All = D3D12_BARRIER_SYNC_ALL,
+		Draw = D3D12_BARRIER_SYNC_DRAW,
+		RenderTarget = D3D12_BARRIER_SYNC_RENDER_TARGET
+	};
+
 	export auto RenderTargetTextureBarrier(RenderTargetBarrierSync sync = RenderTargetBarrierSync::RenderTarget)
 	{
 		return [=](D3D12_TEXTURE_BARRIER barrier, auto tag)
@@ -633,19 +698,52 @@ namespace xk::D3D12
 		};
 	}
 
-	export auto VertexBufferBarrier()
+	export enum class VertexBufferBarrierSync
+	{
+		All = D3D12_BARRIER_SYNC_ALL,
+		Draw = D3D12_BARRIER_SYNC_DRAW,
+		VertexShading = D3D12_BARRIER_SYNC_VERTEX_SHADING,
+		AllShading = D3D12_BARRIER_SYNC_ALL_SHADING
+	};
+
+	export auto VertexBufferBarrier(VertexBufferBarrierSync sync = VertexBufferBarrierSync::VertexShading)
 	{
 		return [=](D3D12_BUFFER_BARRIER barrier, auto tag)
 		{
 			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
 			{
-				barrier.SyncBefore = D3D12_BARRIER_SYNC_VERTEX_SHADING;
+				barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
 				barrier.AccessBefore = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
 			}
 			else
 			{
-				barrier.SyncAfter = D3D12_BARRIER_SYNC_VERTEX_SHADING;
+				barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
 				barrier.AccessAfter = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+			}
+			return barrier;
+		};
+	}
+
+
+	export enum class IndexBufferBarrierSync
+	{
+		All = D3D12_BARRIER_SYNC_ALL,
+		Draw = D3D12_BARRIER_SYNC_DRAW,
+		IndexInput = D3D12_BARRIER_SYNC_INDEX_INPUT,
+	};
+	export auto IndexBufferBarrier(IndexBufferBarrierSync sync = IndexBufferBarrierSync::IndexInput)
+	{
+		return [=](D3D12_BUFFER_BARRIER barrier, auto tag)
+		{
+			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
+			{
+				barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);;
+				barrier.AccessBefore = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+			}
+			else
+			{
+				barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);;
+				barrier.AccessAfter = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
 			}
 			return barrier;
 		};

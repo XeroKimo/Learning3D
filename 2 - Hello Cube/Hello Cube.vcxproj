@@ -154,6 +154,9 @@
     <ClCompile Include="main2.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\D3D12Extensions\D3D12Extensions.vcxproj">
+      <Project>{e467baf1-4839-4e93-9a25-9c619d8e5ce8}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\TypedD3D\TypedD3D\TypedD3D12.vcxproj">
       <Project>{4c07b140-d4bd-40d4-be41-18e6aa4d78ef}</Project>
     </ProjectReference>

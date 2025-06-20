@@ -1,79 +1,176 @@
-
-#include <d3d11.h>
 #include <dxgi1_4.h>
-#include <d3d11sdklayers.h>
+#include <d3d12sdklayers.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <array>
+#include <d3d12.h>
 #include <chrono>
+#include <span>
+#include <concepts>
+#include <cassert>
+#include <iostream>
 
-import TypedD3D11;
+import TypedD3D12;
 import TypedDXGI;
-import xk.Math;
+import D3D12Extensions;
 import SDL2pp;
+import xk.Math;
 
+//using namespace TypedD3D;
 #undef CreateWindow;
-
 int main()
 {
-	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("2 - Hello Cube", { 1280, 720 }, {});
+	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("1 - Hello Triangle", { 1280, 720 }, {});
 
-	Microsoft::WRL::ComPtr<ID3D11Debug> debugDevice;
-
+	Microsoft::WRL::ComPtr<ID3D12Debug6> debugLayer;
+	D3D12GetDebugInterface(IID_PPV_ARGS(&debugLayer));
+	debugLayer->EnableDebugLayer();
+	Microsoft::WRL::ComPtr<ID3D12DebugDevice2> debugDevice;
+	//
 	{
-		auto [device, deviceContext] = TypedD3D11::CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_DEBUG, D3D_FEATURE_LEVEL_11_1, D3D11_SDK_VERSION);
-		debugDevice = TypedD3D::Cast<ID3D11Debug>(device.AsComPtr());
+		TypedD3D::D3D12::Direct<ID3D12CommandQueue> queue;
+		TypedD3D::Wrapper<ID3D12Device5> device = TypedD3D12::CreateDevice<ID3D12Device5>(D3D_FEATURE_LEVEL_12_2);
+
+		debugDevice = TypedD3D::Cast<ID3D12DebugDevice2>(device.AsComPtr());
 		TypedD3D::Wrapper<IDXGIFactory2> factory = TypedDXGI::CreateFactory2<IDXGIFactory2>({});
-		TypedD3D::Wrapper<IDXGISwapChain> swapChain = factory->CreateSwapChainForHwnd(
-			device,
-			window->GetInternalHandle(),
-			DXGI_SWAP_CHAIN_DESC1
-			{
-				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-				.SampleDesc{.Count = 1 },
-				.BufferUsage = DXGI_USAGE_BACK_BUFFER | DXGI_USAGE_RENDER_TARGET_OUTPUT,
-				.BufferCount = 2,
-				.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD
-			},
-			nullptr,
-			nullptr);
-		D3D11_RENDER_TARGET_VIEW_DESC viewDesc
+		xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT> commandQueue{ device };
+		xk::D3D12::SwapChain swapChain{ factory, device, commandQueue, window->GetInternalHandle(), 2, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH };
+		TypedD3D12::Direct<ID3D12GraphicsCommandList5> commandList = TypedD3D::Cast<ID3D12GraphicsCommandList5>(device->CreateCommandList1<D3D12_COMMAND_LIST_TYPE_DIRECT>(0, D3D12_COMMAND_LIST_FLAG_NONE));
+		TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandAllocator>, 2> commandAllocators
 		{
-			.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-			.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D,
-			.Texture2D = {.MipSlice = 0}
+			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
+			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
 		};
-
-		TypedD3D::Wrapper<ID3D11RenderTargetView> backBuffer = device->CreateRenderTargetView(swapChain->GetBuffer<ID3D11Resource>(0), &viewDesc);
-
-		std::array<D3D11_INPUT_ELEMENT_DESC, 2> elements
+		TypedD3D12::DSV<ID3D12DescriptorHeap> DSVs = device->CreateDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_FLAG_NONE>(1, 0);
+		TypedD3D::Wrapper<ID3D12Resource> depthBuffer = [&]
 		{
-			D3D11_INPUT_ELEMENT_DESC{
+			D3D12_HEAP_PROPERTIES heapProperties
+			{
+				.Type = D3D12_HEAP_TYPE_DEFAULT,
+				.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+				.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN,
+				.CreationNodeMask = 0,
+				.VisibleNodeMask = 0
+			};
+
+			D3D12_RESOURCE_DESC description
+			{
+				.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+				.Alignment = 0,
+				.Width = static_cast<UINT64>(window->GetSize().X()),
+				.Height = static_cast<UINT64>(window->GetSize().Y()),
+				.DepthOrArraySize = 1,
+				.MipLevels = 1,
+				.Format = DXGI_FORMAT_D32_FLOAT,
+				.SampleDesc = {.Count = 1, . Quality = 0},
+				.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE,
+				.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
+			};
+
+			return device->CreateCommittedResource(heapProperties, D3D12_HEAP_FLAG_NONE, description, D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr);
+		}();
+
+		std::array<D3D12_INPUT_ELEMENT_DESC, 2> elements
+		{
+			D3D12_INPUT_ELEMENT_DESC{
 				.SemanticName = "POSITION",
 				.SemanticIndex = 0,
 				.Format = DXGI_FORMAT_R32G32B32_FLOAT,
 				.InputSlot = 0,
-				.AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT,
-				.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+				.AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT,
+				.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
 				.InstanceDataStepRate = 0
 			},
-			D3D11_INPUT_ELEMENT_DESC{
+			D3D12_INPUT_ELEMENT_DESC{
 				.SemanticName = "NORMAL",
 				.SemanticIndex = 0,
 				.Format = DXGI_FORMAT_R32G32B32_FLOAT,
 				.InputSlot = 0,
-				.AlignedByteOffset = D3D11_APPEND_ALIGNED_ELEMENT,
-				.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA,
+				.AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT,
+				.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
 				.InstanceDataStepRate = 0
 			},
 		};
-		Microsoft::WRL::ComPtr<ID3DBlob> blob;
-		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"VertexShader.hlsl", nullptr, nullptr, "main", "vs_5_0", {}, {}, &blob, nullptr));
-		TypedD3D::Wrapper<ID3D11InputLayout> layout = device->CreateInputLayout(elements, *blob.Get());
-		TypedD3D::Wrapper<ID3D11VertexShader> vertexShader = device->CreateVertexShader(*blob.Get(), nullptr);
 
-		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"PixelShader.hlsl", nullptr, nullptr, "main", "ps_5_0", {}, {}, &blob, nullptr));
-		TypedD3D::Wrapper<ID3D11PixelShader> pixelShader = device->CreatePixelShader(*blob.Get(), nullptr);
+		Microsoft::WRL::ComPtr<ID3DBlob> vertexBlob;
+		Microsoft::WRL::ComPtr<ID3DBlob> pixelBlob;
+
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"VertexShader.hlsl", nullptr, nullptr, "main", "vs_5_0", D3DCOMPILE_DEBUG, {}, &vertexBlob, nullptr));
+		TypedD3D::ThrowIfFailed(D3DCompileFromFile(L"PixelShader.hlsl", nullptr, nullptr, "main", "ps_5_0", D3DCOMPILE_DEBUG, {}, &pixelBlob, nullptr));
+
+		Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob;
+		std::array<D3D12_ROOT_PARAMETER1, 2> parameter;
+		parameter[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+		parameter[0].Descriptor.RegisterSpace = 0;
+		parameter[0].Descriptor.ShaderRegister = 0;
+		parameter[0].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE;
+		parameter[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+		parameter[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+		parameter[1].Descriptor.RegisterSpace = 0;
+		parameter[1].Descriptor.ShaderRegister = 1;
+		parameter[1].Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE;
+		parameter[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+
+		D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc
+		{
+			.Version = D3D_ROOT_SIGNATURE_VERSION_1_1,
+			.Desc_1_1
+			{
+			.NumParameters = parameter.size(),
+			.pParameters = parameter.data(),
+			.NumStaticSamplers = 0,
+			.pStaticSamplers = nullptr,
+			.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+			}
+		};
+		D3D12SerializeVersionedRootSignature(&rootSignatureDesc, &signatureBlob, nullptr);
+		Microsoft::WRL::ComPtr<ID3D12RootSignature> nullSignature = device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize());
+
+
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineDesc
+		{
+			.pRootSignature = nullSignature.Get(),
+			.VS = { vertexBlob->GetBufferPointer(), vertexBlob->GetBufferSize() },
+			.PS = { pixelBlob->GetBufferPointer(), pixelBlob->GetBufferSize() },
+			.BlendState
+			{
+				.RenderTarget =
+				{
+					{
+						.SrcBlend = D3D12_BLEND_ONE,
+						.DestBlend = D3D12_BLEND_ZERO,
+						.BlendOp = D3D12_BLEND_OP_ADD,
+						.SrcBlendAlpha = D3D12_BLEND_ONE,
+						.DestBlendAlpha = D3D12_BLEND_ZERO,
+						.BlendOpAlpha = D3D12_BLEND_OP_ADD,
+						.LogicOp = D3D12_LOGIC_OP_NOOP,
+						.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL
+					}
+				}
+			},
+			.SampleMask = 0xff'ff'ff'ff,
+			.RasterizerState =
+			{
+				.FillMode = D3D12_FILL_MODE_SOLID,
+				.CullMode = D3D12_CULL_MODE_BACK,
+				.FrontCounterClockwise = false
+			},
+			.DepthStencilState
+			{
+				.DepthEnable = true,
+				.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL,
+				.DepthFunc = D3D12_COMPARISON_FUNC_GREATER,
+				.StencilEnable = false
+			},
+			.InputLayout = { elements.data(), elements.size() },
+			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+			.NumRenderTargets = 1,
+			.RTVFormats = { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB },
+			.SampleDesc = {.Count = 1 }
+		};
+
+		TypedD3D12::Graphics<ID3D12PipelineState> pipeline = device->CreateGraphicsPipelineState(pipelineDesc);
+
 
 		struct Vertex
 		{
@@ -81,9 +178,8 @@ int main()
 			xk::Math::Vector<float, 3> normal;
 		};
 
-		TypedD3D::Wrapper<ID3D11Buffer> vertexBuffer = [&]
+		auto [vertexBuffer, vertexCount] = [&]
 		{
-
 			static constexpr xk::Math::Vector<float, 3> blf{ -0.5f, -0.5f, -0.5f };
 			static constexpr xk::Math::Vector<float, 3> tlf{ -0.5f, 0.5f, -0.5f };
 			static constexpr xk::Math::Vector<float, 3> trf{ 0.5f, 0.5f, -0.5f };
@@ -126,24 +222,33 @@ int main()
 					{ brb, right },
 				});
 
-			D3D11_BUFFER_DESC bufferDesc
-			{
-				.ByteWidth = sizeof(vertices),
-				.Usage = D3D11_USAGE_IMMUTABLE,
-				.BindFlags = D3D11_BIND_VERTEX_BUFFER,
-				.CPUAccessFlags = 0,
-				.MiscFlags = 0,
-				.StructureByteStride = 0
-			};
+			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, TypedD3D::Wrapper<ID3D12Device>{ device });
 
-			D3D11_SUBRESOURCE_DATA initialData
+			TypedD3D::Wrapper<ID3D12Resource> vertexResource = xk::D3D12::CreateBuffer(device, vertexUpload);
+			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
 			{
-				.pSysMem = &vertices,
-				.SysMemPitch = sizeof(vertices),
-				.SysMemSlicePitch = 0
-			};
 
-			return device->CreateBuffer(bufferDesc, &initialData);
+				xk::D3D12::UploadBuffer(commandList, vertexResource, vertexUpload);
+				D3D12_BARRIER_GROUP group;
+				group.NumBarriers = 1;
+				group.Type = D3D12_BARRIER_TYPE_BUFFER;
+				D3D12_BUFFER_BARRIER barrier = xk::D3D12::BufferBarrier(vertexResource.Get())
+					.Before(xk::D3D12::NoAccessBarrier())
+					.After(xk::D3D12::VertexBufferBarrier());
+				group.pBufferBarriers = &barrier;
+
+				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
+				tempList.Get()->Release();
+				tempList->Barrier(1, &group);
+			});
+
+			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
+			swapChain.GetQueue().ExecuteCommandLists(submitList);
+			swapChain.GetQueue().GPUSignal();
+			swapChain.GetQueue().Flush();
+
+			return std::pair{ vertexResource, vertices.size() };
 		}();
 
 		auto [indexBuffer, indexCount] = [&]
@@ -158,103 +263,84 @@ int main()
 					20, 21, 22, 20, 22, 23, //Right Face
 				});
 
-			D3D11_BUFFER_DESC bufferDesc
+			xk::D3D12::StagedBufferUpload indexUpload = xk::D3D12::StageBufferUpload(std::span{ indices }, TypedD3D::Wrapper<ID3D12Device>{ device });			
+			
+			TypedD3D::Wrapper<ID3D12Resource> indexResource = xk::D3D12::CreateBuffer(device, indexUpload);
+			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
 			{
-				.ByteWidth = sizeof(indices),
-				.Usage = D3D11_USAGE_IMMUTABLE,
-				.BindFlags = D3D11_BIND_INDEX_BUFFER,
-				.CPUAccessFlags = 0,
-				.MiscFlags = 0,
-				.StructureByteStride = 0
-			};
 
-			D3D11_SUBRESOURCE_DATA initialData
-			{
-				.pSysMem = &indices,
-				.SysMemPitch = sizeof(UINT32),
-				.SysMemSlicePitch = 0
-			};
+				xk::D3D12::UploadBuffer(commandList, indexResource, indexUpload);
+				D3D12_BARRIER_GROUP group;
+				group.NumBarriers = 1;
+				group.Type = D3D12_BARRIER_TYPE_BUFFER;
+				D3D12_BUFFER_BARRIER barrier = xk::D3D12::BufferBarrier(indexResource.Get())
+					.Before(xk::D3D12::NoAccessBarrier())
+					.After(xk::D3D12::IndexBufferBarrier());
+				group.pBufferBarriers = &barrier;
 
-			return std::pair{ device->CreateBuffer(bufferDesc, &initialData), static_cast<UINT>(indices.size()) };
+				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
+				tempList.Get()->Release();
+				tempList->Barrier(1, &group);
+			});
+
+			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
+			swapChain.GetQueue().ExecuteCommandLists(submitList);
+			swapChain.GetQueue().GPUSignal();
+			swapChain.GetQueue().Flush();
+
+			return std::pair{ indexResource, indices.size() };
 		}();
+
+		xk::D3D12::ConstantBuffer constantBuffer{ device, 1 << 16 };
+
+
+		D3D12_VIEWPORT viewport
+		{
+			.TopLeftX = 0,
+			.TopLeftY = 0,
+			.Width = static_cast<float>(window->GetSize().X()),
+			.Height = static_cast<float>(window->GetSize().Y()),
+			.MinDepth = 0,
+			.MaxDepth = 1
+		};
+
+		D3D12_RECT rect
+		{
+			.left = 0,
+			.top = 0,
+			.right = static_cast<LONG>(window->GetSize().X()),
+			.bottom = static_cast<LONG>(window->GetSize().Y())
+		};
+		D3D12_VERTEX_BUFFER_VIEW vertexBufferView
+		{
+			.BufferLocation = vertexBuffer->GetGPUVirtualAddress(),
+			.SizeInBytes = static_cast<UINT>(sizeof(Vertex) * vertexCount),
+			.StrideInBytes = static_cast<UINT>(sizeof(Vertex))
+		};
+		D3D12_INDEX_BUFFER_VIEW indexBufferView
+		{
+			.BufferLocation = indexBuffer->GetGPUVirtualAddress(),
+			.SizeInBytes = static_cast<UINT>(sizeof(UINT32) * indexCount),
+			.Format = DXGI_FORMAT_R32_UINT
+		};
+
 
 		xk::Math::Vector<float, 3> cameraPos{ 0, 0, -3 };
 		xk::Math::Vector<float, 3> cameraMovementDirection{ 0, 0, 0 };
 		float cameraSpeed = 4;
 		xk::Math::SquareMatrix<float, 4> projectionMatrix = xk::Math::PerspectiveProjectionLH(xk::Math::Degree{ 90.f }, 1280.f / 720.f, 0.001f, 1000.f);
-		TypedD3D::Wrapper<ID3D11Buffer> cameraBuffer = [&]
-		{
-			auto initialValue = projectionMatrix * xk::Math::TransformMatrix(-cameraPos);
-			D3D11_BUFFER_DESC bufferDesc
-			{
-				.ByteWidth = sizeof(projectionMatrix),
-				.Usage = D3D11_USAGE_DYNAMIC,
-				.BindFlags = D3D11_BIND_CONSTANT_BUFFER,
-				.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE,
-				.MiscFlags = 0,
-				.StructureByteStride = 0
-			};
-
-			D3D11_SUBRESOURCE_DATA initialData
-			{
-				.pSysMem = &initialValue,
-				.SysMemPitch = sizeof(initialValue),
-				.SysMemSlicePitch = 0
-			};
-			return device->CreateBuffer(bufferDesc, &initialData);
-		}();
 
 
 		xk::Math::Quaternion<float> objectRotation;
-		TypedD3D::Wrapper<ID3D11Buffer> objectBuffer = [&]
-		{
-			D3D11_BUFFER_DESC bufferDesc
-			{
-				.ByteWidth = sizeof(xk::Math::SquareMatrix<float, 4>),
-				.Usage = D3D11_USAGE_DYNAMIC,
-				.BindFlags = D3D11_BIND_CONSTANT_BUFFER,
-				.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE,
-				.MiscFlags = 0,
-				.StructureByteStride = 0
-			};
-			return device->CreateBuffer(bufferDesc, nullptr);
-		}();
-
-		TypedD3D::Wrapper<ID3D11DepthStencilView> dsv = [&]
-		{
-			auto desc = backBuffer->GetResource<ID3D11Texture2D>()->GetDesc();
-			desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-			desc.Format = DXGI_FORMAT_D32_FLOAT;
-			auto texture = device->CreateTexture2D(desc, nullptr);
-			return device->CreateDepthStencilView(texture);
-		}();
-		TypedD3D::Wrapper<ID3D11RasterizerState> rasterizerState = [&]
-		{
-			D3D11_RASTERIZER_DESC desc
-			{ 
-				.FillMode = D3D11_FILL_SOLID,
-				.CullMode = D3D11_CULL_BACK,
-				.FrontCounterClockwise = false,
-				.DepthBias = 0,
-				.DepthBiasClamp = 0,
-				.SlopeScaledDepthBias = 0,
-				.DepthClipEnable = true,
-				.ScissorEnable = false,
-				.MultisampleEnable = false,
-				.AntialiasedLineEnable = false,
-			};
-			return device->CreateRasterizerState(desc);
-		}();
-
-
 
 		SDL2pp::Event event;
 		std::chrono::time_point previous = std::chrono::steady_clock::now();
-		while(true)
+		while (true)
 		{
-			if(SDL2pp::PollEvent(event))
+			if (SDL2pp::PollEvent(event))
 			{
-				if(event.type == SDL2pp::EventType::SDL_QUIT)
+				if (event.type == SDL2pp::EventType::SDL_QUIT)
 				{
 					break;
 				}
@@ -301,45 +387,56 @@ int main()
 			{
 				auto current = std::chrono::steady_clock::now();
 				auto delta = current - previous;
-
 				cameraPos += cameraMovementDirection * cameraSpeed * std::chrono::duration<float>(delta).count();
 
-				deviceContext->ClearRenderTargetView(backBuffer, { 0.2f, 0.3f, 0.3f, 1.0f });
-				deviceContext->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1, 0);
-				deviceContext->OMSetRenderTargets(backBuffer, dsv);
-				deviceContext->RSSetState(rasterizerState);
-				deviceContext->RSSetViewports({ .Width = 1280, .Height = 720, .MinDepth = 0, .MaxDepth = 1 });
-				deviceContext->IASetInputLayout(layout);
-				deviceContext->IASetVertexBuffers(0, vertexBuffer, sizeof(Vertex), 0);
-				deviceContext->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-				deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
 
+				swapChain.Frame([&](xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT>& queue, UINT currentFrameIndex, TypedD3D12::RTV<D3D12_CPU_DESCRIPTOR_HANDLE> backBuffer)
 				{
-					auto subresource = deviceContext->Map(objectBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-					//objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 0, 0, 1 }), xk::Math::Degree<float>{ 90.f * 0.016f } };
-					objectRotation *= xk::Math::Quaternion<float>{ xk::Math::Normalize<float, 3>({ 1, 1, 1 }), xk::Math::Degree<float>{ 90.f * std::chrono::duration<float>{ delta }.count()} };
-					auto objectTransform = objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity();
-					std::memcpy(subresource.pData, &objectTransform, sizeof(objectTransform));
-					deviceContext->Unmap(objectBuffer, 0);
-				}
-				{
-					auto subresource = deviceContext->Map(cameraBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0);
-					auto cameraTransform = projectionMatrix * xk::Math::TransformMatrix(-cameraPos);
-					std::memcpy(subresource.pData, &cameraTransform, sizeof(cameraTransform));
-					deviceContext->Unmap(cameraBuffer, 0);
-				}
+					Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
+					tempList.Get()->Release();
 
-				deviceContext->VSSetShader(vertexShader, nullptr);
-				deviceContext->VSSetConstantBuffers(0, cameraBuffer);
-				deviceContext->VSSetConstantBuffers(1, objectBuffer);
-				deviceContext->PSSetShader(pixelShader, nullptr);
-				deviceContext->DrawIndexed(indexCount, 0, 0);
-				swapChain->Present(0, 0);
+					xk::D3D12::Record(commandList, commandAllocators[currentFrameIndex].ToWrapper(), pipeline.Get()
+						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+					{
+						D3D12_BARRIER_GROUP group;
+						group.NumBarriers = 1;
+						group.Type = D3D12_BARRIER_TYPE_TEXTURE;
+
+						D3D12_TEXTURE_BARRIER barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
+							.Before(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON))
+							.After(xk::D3D12::RenderTargetTextureBarrier());
+						group.pTextureBarriers = &barrier;
+						tempList->Barrier(1, &group);
+
+						commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
+						commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, nullptr);
+						commandList->SetGraphicsRootSignature(nullSignature.Get());
+						commandList->RSSetViewports(std::span(&viewport, 1));
+						commandList->RSSetScissorRects(std::span(&rect, 1));
+						commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						commandList->IASetVertexBuffers(0, std::span(&vertexBufferView, 1));
+						commandList->IASetIndexBuffer(&indexBufferView);
+						commandList->SetGraphicsRootConstantBufferView(0, constantBuffer.Upload(projectionMatrix * xk::Math::TransformMatrix(-cameraPos)));
+						commandList->SetGraphicsRootConstantBufferView(1, constantBuffer.Upload(objectRotation.ToRotationMatrix()* xk::Math::SquareMatrix<float, 4>::Identity()));
+						commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+
+						barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
+							.Before(xk::D3D12::RenderTargetTextureBarrier())
+							.After(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON));
+						group.pTextureBarriers = &barrier;
+						tempList->Barrier(1, &group);
+					});
+
+					TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
+					queue.ExecuteCommandLists(TypedD3D::Span{ submitList });
+				});
+
 				previous = current;
 			}
 		}
 	}
 
-	debugDevice->ReportLiveDeviceObjects(D3D11_RLDO_FLAGS::D3D11_RLDO_SUMMARY | D3D11_RLDO_FLAGS::D3D11_RLDO_DETAIL | D3D11_RLDO_IGNORE_INTERNAL);
+	debugDevice->ReportLiveDeviceObjects(D3D12_RLDO_FLAGS::D3D12_RLDO_SUMMARY | D3D12_RLDO_FLAGS::D3D12_RLDO_DETAIL | D3D12_RLDO_IGNORE_INTERNAL);
 	return 0;
 }
