@@ -205,14 +205,14 @@ namespace xk::D3D12
 			return GPUWait(OtherQueue.Fence, Value);
 		}
 
-		template<std::convertible_to<typename TypedD3D12::D3D12CommandQueue_t<Type>::traits_type::list_value_type> ListTy, size_t Extents>
+		template<class ListTy, size_t Extents>
 		void ExecuteCommandLists(
 			TypedD3D::Span<ListTy, Extents> commandLists)
 		{
 			commandQueue->ExecuteCommandLists(commandLists);
 		}
 
-		template<std::convertible_to<typename TypedD3D12::D3D12CommandQueue_t<Type>::traits_type::list_value_type> ListTy, size_t Extents>
+		template<class ListTy, size_t Extents>
 		void ExecuteCommandLists(
 			TypedD3D::Array<ListTy, Extents> commandLists)
 		{
@@ -632,43 +632,62 @@ namespace xk::D3D12
 	};
 
 	//Call NoneTextureBarrier if trying to insert a texture barrier
-	export auto NoAccessBarrier()
+	export struct NoAccessBarrier
 	{
-		return [=](auto barrier, auto tag) requires (!std::convertible_to<decltype(barrier), D3D12_TEXTURE_BARRIER>)
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, BeforeTag)
 		{
-			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
-			{
-				barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
-				barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-			}
-			else
-			{
-				barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
-				barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
-			}
+			barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
 			return barrier;
-		};
-	}
+		}
 
-	export auto NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT layout)
-	{
-		return [=](D3D12_TEXTURE_BARRIER barrier, auto tag)
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, AfterTag)
 		{
-			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
-			{
-				barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
-				barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-				barrier.LayoutBefore = layout;
-			}
-			else
-			{
-				barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
-				barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
-				barrier.LayoutAfter = layout;
-			}
+			barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
 			return barrier;
-		};
-	}
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			return barrier;
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			return barrier;
+		}
+	};
+
+	export struct NoAccessTextureBarrier
+	{
+		D3D12_BARRIER_LAYOUT layout;
+		NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT layout) :
+			layout{ layout }
+		{
+
+		}
+
+		D3D12_TEXTURE_BARRIER operator()(D3D12_TEXTURE_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			barrier.LayoutBefore = layout;
+			return barrier;
+		}
+
+		D3D12_TEXTURE_BARRIER operator()(D3D12_TEXTURE_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = D3D12_BARRIER_SYNC_NONE;
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			barrier.LayoutAfter = layout;
+			return barrier;
+		}
+	};
 
 
 	export enum class RenderTargetBarrierSync
@@ -678,25 +697,31 @@ namespace xk::D3D12
 		RenderTarget = D3D12_BARRIER_SYNC_RENDER_TARGET
 	};
 
-	export auto RenderTargetTextureBarrier(RenderTargetBarrierSync sync = RenderTargetBarrierSync::RenderTarget)
+	export struct RenderTargetTextureBarrier
 	{
-		return [=](D3D12_TEXTURE_BARRIER barrier, auto tag)
+		RenderTargetBarrierSync sync;
+
+		RenderTargetTextureBarrier(RenderTargetBarrierSync sync = RenderTargetBarrierSync::RenderTarget) :
+			sync{ sync }
 		{
-			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
-			{
-				barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
-				barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
-				barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-			}
-			else
-			{
-				barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
-				barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
-				barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-			}
+		}
+
+		D3D12_TEXTURE_BARRIER operator()(D3D12_TEXTURE_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+			barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
 			return barrier;
-		};
-	}
+		}
+
+		D3D12_TEXTURE_BARRIER operator()(D3D12_TEXTURE_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_RENDER_TARGET;
+			barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+			return barrier;
+		}
+	};
 
 	export enum class VertexBufferBarrierSync
 	{
@@ -706,24 +731,44 @@ namespace xk::D3D12
 		AllShading = D3D12_BARRIER_SYNC_ALL_SHADING
 	};
 
-	export auto VertexBufferBarrier(VertexBufferBarrierSync sync = VertexBufferBarrierSync::VertexShading)
+	export struct VertexBufferBarrier
 	{
-		return [=](D3D12_BUFFER_BARRIER barrier, auto tag)
-		{
-			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
-			{
-				barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
-				barrier.AccessBefore = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
-			}
-			else
-			{
-				barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
-				barrier.AccessAfter = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
-			}
-			return barrier;
-		};
-	}
+		VertexBufferBarrierSync sync;
 
+		VertexBufferBarrier(VertexBufferBarrierSync sync = VertexBufferBarrierSync::VertexShading) :
+			sync{ sync }
+		{
+
+		}
+
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+			return barrier;
+		}
+
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+			return barrier;
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+			return barrier;
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+			return barrier;
+		}
+	};
 
 	export enum class IndexBufferBarrierSync
 	{
@@ -731,23 +776,45 @@ namespace xk::D3D12
 		Draw = D3D12_BARRIER_SYNC_DRAW,
 		IndexInput = D3D12_BARRIER_SYNC_INDEX_INPUT,
 	};
-	export auto IndexBufferBarrier(IndexBufferBarrierSync sync = IndexBufferBarrierSync::IndexInput)
+
+	export struct IndexBufferBarrier
 	{
-		return [=](D3D12_BUFFER_BARRIER barrier, auto tag)
+		IndexBufferBarrierSync sync;
+
+		IndexBufferBarrier(IndexBufferBarrierSync sync = IndexBufferBarrierSync::IndexInput) :
+			sync{ sync }
 		{
-			if constexpr (std::same_as<BeforeTag, std::remove_reference_t<decltype(tag)>>)
-			{
-				barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);;
-				barrier.AccessBefore = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
-			}
-			else
-			{
-				barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);;
-				barrier.AccessAfter = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
-			}
+
+		}
+
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
 			return barrier;
-		};
-	}
+		}
+
+		D3D12_BUFFER_BARRIER operator()(D3D12_BUFFER_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+			return barrier;
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, BeforeTag)
+		{
+			barrier.SyncBefore = static_cast<D3D12_BARRIER_SYNC>(sync);
+			barrier.AccessBefore = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+			return barrier;
+		}
+
+		D3D12_GLOBAL_BARRIER operator()(D3D12_GLOBAL_BARRIER barrier, AfterTag)
+		{
+			barrier.SyncAfter = static_cast<D3D12_BARRIER_SYNC>(sync);;
+			barrier.AccessAfter = D3D12_BARRIER_ACCESS_INDEX_BUFFER;
+			return barrier;
+		}
+	};
 
 	export template<std::derived_from<ID3D12GraphicsCommandList> ListTy, template<class> class Trait, std::invocable<TypedD3D::IUnknownWrapper<ListTy, Trait>> Func>
 	TypedD3D::IUnknownWrapper<ListTy, Trait> Record(TypedD3D::IUnknownWrapper<ListTy, Trait> commandList, TypedD3D::IUnknownWrapper<ID3D12CommandAllocator, Trait> allocator, ID3D12PipelineState* pipeline, Func func)
