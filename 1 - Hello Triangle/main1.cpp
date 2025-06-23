@@ -8,6 +8,7 @@
 #include <span>
 #include <concepts>
 #include <cassert>
+#include <SDL2/SDL.h>
 
 import TypedD3D12;
 import TypedDXGI;
@@ -26,13 +27,13 @@ int main()
 	//
 	{
 		TypedD3D::D3D12::Direct<ID3D12CommandQueue> queue;
-		TypedD3D::Wrapper<ID3D12Device5> device = TypedD3D12::CreateDevice<ID3D12Device5>(D3D_FEATURE_LEVEL_12_2);
+		TypedD3D::Wrapper<ID3D12Device10> device = TypedD3D12::CreateDevice<ID3D12Device10>(D3D_FEATURE_LEVEL_12_2);
 
 		debugDevice = TypedD3D::Cast<ID3D12DebugDevice2>(device.AsComPtr());
 		TypedD3D::Wrapper<IDXGIFactory2> factory = TypedDXGI::CreateFactory2<IDXGIFactory2>({});
 		xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT> commandQueue{ device };
 		xk::D3D12::SwapChain swapChain{ factory, device, commandQueue, window->GetInternalHandle(), 2, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH };
-		TypedD3D12::Direct<ID3D12GraphicsCommandList5> commandList = TypedD3D::Cast<ID3D12GraphicsCommandList5>(device->CreateCommandList1<D3D12_COMMAND_LIST_TYPE_DIRECT>(0, D3D12_COMMAND_LIST_FLAG_NONE));
+		TypedD3D12::Direct<ID3D12GraphicsCommandList7> commandList = device->CreateCommandList1<D3D12_COMMAND_LIST_TYPE_DIRECT, ID3D12GraphicsCommandList7>(0, D3D12_COMMAND_LIST_FLAG_NONE);
 		TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandAllocator>, 2> commandAllocators
 		{
 			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
@@ -135,11 +136,11 @@ int main()
 					{.position = { 0.5f, -0.5f, 0 }, .color = {0, 255, 0, 255}},
 				});
 
-			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, TypedD3D::Wrapper<ID3D12Device>{ device });
+			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, device);
 
 			TypedD3D::Wrapper<ID3D12Resource> vertexResource = xk::D3D12::CreateBuffer(device, vertexUpload);
 			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
-				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList7, TypedD3D12::DirectTraits> commandList)
 			{
 
 				xk::D3D12::UploadBuffer(commandList, vertexResource, vertexUpload);
@@ -151,9 +152,7 @@ int main()
 					.After(xk::D3D12::VertexBufferBarrier());
 				group.pBufferBarriers = &barrier;
 
-				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-				tempList.Get()->Release();
-				tempList->Barrier(1, &group);
+				commandList->Barrier({ &group, 1 });
 			});
 
 			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
@@ -201,11 +200,8 @@ int main()
 			{
 				swapChain.Frame([&](xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT>& queue, UINT currentFrameIndex, TypedD3D12::RTV<D3D12_CPU_DESCRIPTOR_HANDLE> backBuffer)
 				{
-					Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-					tempList.Get()->Release();
-
 					xk::D3D12::Record(commandList, commandAllocators[currentFrameIndex].ToWrapper(), pipeline.Get()
-						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList7, TypedD3D12::DirectTraits> commandList)
 					{
 						D3D12_BARRIER_GROUP group;
 						group.NumBarriers = 1;
@@ -215,7 +211,7 @@ int main()
 							.Before(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON))
 							.After(xk::D3D12::RenderTargetTextureBarrier());
 						group.pTextureBarriers = &barrier;
-						tempList->Barrier(1, &group);
+						commandList->Barrier({ &group, 1 });
 
 						commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
 						commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, nullptr);
@@ -230,11 +226,11 @@ int main()
 							.Before(xk::D3D12::RenderTargetTextureBarrier())
 							.After(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON));
 						group.pTextureBarriers = &barrier;
-						tempList->Barrier(1, &group);
+						commandList->Barrier({ &group, 1 });
 					});
 
 					TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
-					queue.ExecuteCommandLists(TypedD3D::Span{ submitList });
+					queue.ExecuteCommandLists(submitList);
 				});
 			}
 		}

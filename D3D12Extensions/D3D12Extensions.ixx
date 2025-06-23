@@ -323,13 +323,13 @@ namespace xk::D3D12
 
 	export class ConstantBuffer
 	{
-		TypedD3D::Wrapper<ID3D12Resource> resource;
+		TypedD3D::Wrapper<ID3D12Resource2> resource;
 		std::byte* begin;
 		std::byte* current;
 		std::size_t size;
 
 	public:
-		ConstantBuffer(TypedD3D::Wrapper<ID3D12Device> device, std::size_t size) :
+		ConstantBuffer(TypedD3D::Wrapper<ID3D12Device10> device, std::size_t size) :
 			resource{ [&] 
 		{
 			D3D12_HEAP_PROPERTIES heapProperties
@@ -341,7 +341,7 @@ namespace xk::D3D12
 				.VisibleNodeMask = 0
 			};
 
-			D3D12_RESOURCE_DESC description
+			D3D12_RESOURCE_DESC1 description
 			{
 				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 				.Alignment = 0,
@@ -352,14 +352,17 @@ namespace xk::D3D12
 				.Format = DXGI_FORMAT_UNKNOWN,
 				.SampleDesc = {.Count = 1, . Quality = 0},
 				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-				.Flags = D3D12_RESOURCE_FLAG_NONE
+				.Flags = D3D12_RESOURCE_FLAG_NONE,
+				.SamplerFeedbackMipRegion = {}
 			};
 
-			return device->CreateCommittedResource(heapProperties,
+			return device->CreateCommittedResource3(heapProperties,
 				D3D12_HEAP_FLAG_NONE,
 				description,
-				D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
-			nullptr);
+				D3D12_BARRIER_LAYOUT_UNDEFINED,
+				nullptr,
+				nullptr,
+				{});
 
 		}() },
 			begin{ resource->Map(0, nullptr) },
@@ -395,7 +398,7 @@ namespace xk::D3D12
 	};
 
 	export template<class Ty>
-	StagedBufferUpload StageBufferUpload(Ty data, TypedD3D::Wrapper<ID3D12Resource> stagingResource)
+	StagedBufferUpload StageBufferUpload(Ty data, TypedD3D::Wrapper<ID3D12Resource2> stagingResource)
 	{
 		if constexpr (std::ranges::sized_range<Ty> && std::ranges::contiguous_range<Ty>)
 		{
@@ -421,7 +424,7 @@ namespace xk::D3D12
 	}
 
 	export template<class Ty>
-	StagedBufferUpload StageBufferUpload(Ty data, TypedD3D::Wrapper<ID3D12Device> device)
+	StagedBufferUpload StageBufferUpload(Ty data, TypedD3D::Wrapper<ID3D12Device10> device)
 	{
 		D3D12_HEAP_PROPERTIES uploadProperties
 		{
@@ -432,7 +435,7 @@ namespace xk::D3D12
 			.VisibleNodeMask = 0
 		};
 
-		D3D12_RESOURCE_DESC description
+		D3D12_RESOURCE_DESC1 description
 		{
 			.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 			.Alignment = 0,
@@ -443,17 +446,20 @@ namespace xk::D3D12
 			.Format = DXGI_FORMAT_UNKNOWN,
 			.SampleDesc = {.Count = 1, . Quality = 0},
 			.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-			.Flags = D3D12_RESOURCE_FLAG_NONE
+			.Flags = D3D12_RESOURCE_FLAG_NONE,
+			.SamplerFeedbackMipRegion = {}
 		};
 
-		return StageUploadBuffer(data, device->CreateCommittedResource(uploadProperties, D3D12_HEAP_FLAG_NONE,
+		return StageBufferUpload(data, device->CreateCommittedResource3(uploadProperties, D3D12_HEAP_FLAG_NONE,
 			description,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr));
+			D3D12_BARRIER_LAYOUT_UNDEFINED,
+			nullptr,
+			nullptr,
+			{}));
 	}
 
 	export template<class Ty, size_t Extent>
-	StagedBufferUpload StageBufferUpload(std::span<Ty, Extent> data, TypedD3D::Wrapper<ID3D12Device> device)
+	StagedBufferUpload StageBufferUpload(std::span<Ty, Extent> data, TypedD3D::Wrapper<ID3D12Device10> device)
 	{
 		D3D12_HEAP_PROPERTIES uploadProperties
 		{
@@ -464,7 +470,7 @@ namespace xk::D3D12
 			.VisibleNodeMask = 0
 		};
 
-		D3D12_RESOURCE_DESC description
+		D3D12_RESOURCE_DESC1 description
 		{
 			.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 			.Alignment = 0,
@@ -475,16 +481,19 @@ namespace xk::D3D12
 			.Format = DXGI_FORMAT_UNKNOWN,
 			.SampleDesc = {.Count = 1, . Quality = 0},
 			.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-			.Flags = D3D12_RESOURCE_FLAG_NONE
+			.Flags = D3D12_RESOURCE_FLAG_NONE,
+			.SamplerFeedbackMipRegion = {}
 		};
 
-		return StageBufferUpload(data, device->CreateCommittedResource(uploadProperties, D3D12_HEAP_FLAG_NONE,
+		return StageBufferUpload(data, device->CreateCommittedResource3(uploadProperties, D3D12_HEAP_FLAG_NONE,
 			description,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr));
+			D3D12_BARRIER_LAYOUT_UNDEFINED,
+			nullptr,
+			nullptr,
+			{}));
 	}
 
-	export TypedD3D::Wrapper<ID3D12Resource> CreateBuffer(TypedD3D::Wrapper<ID3D12Device> device, StagedBufferUpload stagedUpload)
+	export TypedD3D::Wrapper<ID3D12Resource> CreateBuffer(TypedD3D::Wrapper<ID3D12Device10> device, StagedBufferUpload stagedUpload)
 	{
 		D3D12_HEAP_PROPERTIES headProperties
 		{
@@ -495,7 +504,7 @@ namespace xk::D3D12
 			.VisibleNodeMask = 0
 		};
 
-		D3D12_RESOURCE_DESC description
+		D3D12_RESOURCE_DESC1 description
 		{
 			.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
 			.Alignment = 0,
@@ -506,14 +515,17 @@ namespace xk::D3D12
 			.Format = DXGI_FORMAT_UNKNOWN,
 			.SampleDesc = {.Count = 1, . Quality = 0},
 			.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-			.Flags = D3D12_RESOURCE_FLAG_NONE
+			.Flags = D3D12_RESOURCE_FLAG_NONE,
+			.SamplerFeedbackMipRegion = {}
 		};
 
-		return device->CreateCommittedResource(headProperties,
+		return device->CreateCommittedResource3(headProperties,
 			D3D12_HEAP_FLAG_NONE,
 			description,
-			D3D12_RESOURCE_STATE_COPY_DEST,
-			nullptr);
+			D3D12_BARRIER_LAYOUT_UNDEFINED,
+			nullptr,
+			nullptr,
+			{});
 	}
 
 	export TypedD3D::Wrapper<ID3D12Resource> UploadBuffer(TypedD3D12::Direct<ID3D12GraphicsCommandList> commandList, TypedD3D::Wrapper<ID3D12Resource> destinationResource, StagedBufferUpload stagedUpload)
@@ -528,7 +540,7 @@ namespace xk::D3D12
 
 	export TypedD3D::Wrapper<ID3D12Resource> UploadBuffer(TypedD3D12::Direct<ID3D12GraphicsCommandList> commandList, StagedBufferUpload stagedUpload)
 	{
-		return UploadBuffer(commandList, CreateBuffer(commandList->GetDevice(), stagedUpload), stagedUpload);
+		return UploadBuffer(commandList, CreateBuffer(commandList->GetDevice<ID3D12Device10>(), stagedUpload), stagedUpload);
 	}
 
 	export enum class BeforeTag {};
@@ -536,6 +548,7 @@ namespace xk::D3D12
 
 	export struct GlobalBarrier
 	{
+		static constexpr auto type = D3D12_BARRIER_TYPE_GLOBAL;
 		D3D12_GLOBAL_BARRIER barrier{};
 
 		template<std::invocable<D3D12_GLOBAL_BARRIER, BeforeTag> Func>
@@ -550,11 +563,20 @@ namespace xk::D3D12
 			return { func(barrier, AfterTag{}) };
 		}
 
+		GlobalBarrier Flip()
+		{
+			D3D12_GLOBAL_BARRIER temp = barrier;
+			std::swap(temp.AccessAfter, temp.AccessBefore);
+			std::swap(temp.SyncAfter, temp.SyncBefore);
+			return { temp };
+		}
+
 		operator D3D12_GLOBAL_BARRIER() const { return barrier; }
 	};
 
 	export struct TextureBarrier
 	{
+		static constexpr auto type = D3D12_BARRIER_TYPE_TEXTURE;
 		D3D12_TEXTURE_BARRIER barrier{};
 
 		TextureBarrier(D3D12_TEXTURE_BARRIER barrier) :
@@ -580,12 +602,22 @@ namespace xk::D3D12
 		{ 
 			return { func(barrier, AfterTag{}) };
 		}
+		
+		TextureBarrier Flip()
+		{
+			D3D12_TEXTURE_BARRIER temp = barrier;
+			std::swap(temp.AccessAfter, temp.AccessBefore);
+			std::swap(temp.SyncAfter, temp.SyncBefore);
+			std::swap(temp.LayoutAfter, temp.LayoutBefore);
+			return temp;
+		}
 
 		operator D3D12_TEXTURE_BARRIER() const { return barrier; }
 	};
 
 	export struct BufferBarrier
 	{
+		static constexpr auto type = D3D12_BARRIER_TYPE_BUFFER;
 		D3D12_BUFFER_BARRIER barrier{};
 
 		BufferBarrier(D3D12_BUFFER_BARRIER barrier) :
@@ -626,6 +658,14 @@ namespace xk::D3D12
 		BufferBarrier After(Func func)
 		{ 
 			return { func(barrier, AfterTag{}) };
+		}
+
+		BufferBarrier Flip()
+		{
+			D3D12_BUFFER_BARRIER temp = barrier;
+			std::swap(temp.AccessAfter, temp.AccessBefore);
+			std::swap(temp.SyncAfter, temp.SyncBefore);
+			return temp;
 		}
 
 		operator D3D12_BUFFER_BARRIER() const { return barrier; }
@@ -837,5 +877,25 @@ namespace xk::D3D12
 	{
 		return Record(commandList, allocator.ToWrapper(), pipeline, func);
 	}
+
+	export template<std::derived_from<ID3D12GraphicsCommandList7> ListTy, template<class> class Trait, std::invocable<TypedD3D::IUnknownWrapper<ListTy, Trait>> Func, class Barrier, class AfterBarrierFunc>
+	void ScopedBarrier(TypedD3D::IUnknownWrapper<ListTy, Trait> commandList, Barrier bf, AfterBarrierFunc af, Func func)
+	{
+		D3D12_BARRIER_GROUP group;
+		group.NumBarriers = 1;
+		group.Type = Barrier::type;
+		if constexpr (Barrier::type == D3D12_BARRIER_TYPE_GLOBAL)
+			group.pGlobalBarriers = &bf.barrier;
+		else if constexpr (Barrier::type == D3D12_BARRIER_TYPE_TEXTURE)
+			group.pTextureBarriers = &bf.barrier;
+		else if constexpr (Barrier::type == D3D12_BARRIER_TYPE_BUFFER)
+			group.pBufferBarriers = &bf.barrier;
+
+		commandList->Barrier({ &group, 1 });
+		func(commandList);
+		bf = bf.Flip().After(af);
+		commandList->Barrier({ &group, 1 });
+	}
+
 
 }

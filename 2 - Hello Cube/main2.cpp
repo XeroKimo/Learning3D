@@ -9,7 +9,7 @@
 #include <concepts>
 #include <cassert>
 #include <iostream>
-
+#include <SDL2/SDL.h>
 import TypedD3D12;
 import TypedDXGI;
 import D3D12Extensions;
@@ -18,6 +18,8 @@ import xk.Math;
 
 //using namespace TypedD3D;
 #undef CreateWindow;
+#undef main;
+
 int main()
 {
 	SDL2pp::unique_ptr<SDL2pp::Window> window = SDL2pp::CreateWindow("1 - Hello Triangle", { 1280, 720 }, {});
@@ -29,13 +31,13 @@ int main()
 	//
 	{
 		TypedD3D::D3D12::Direct<ID3D12CommandQueue> queue;
-		TypedD3D::Wrapper<ID3D12Device5> device = TypedD3D12::CreateDevice<ID3D12Device5>(D3D_FEATURE_LEVEL_12_2);
+		TypedD3D::Wrapper<ID3D12Device10> device = TypedD3D12::CreateDevice<ID3D12Device10>(D3D_FEATURE_LEVEL_12_2);
 
 		debugDevice = TypedD3D::Cast<ID3D12DebugDevice2>(device.AsComPtr());
 		TypedD3D::Wrapper<IDXGIFactory2> factory = TypedDXGI::CreateFactory2<IDXGIFactory2>({});
 		xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT> commandQueue{ device };
 		xk::D3D12::SwapChain swapChain{ factory, device, commandQueue, window->GetInternalHandle(), 2, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH };
-		TypedD3D12::Direct<ID3D12GraphicsCommandList5> commandList = TypedD3D::Cast<ID3D12GraphicsCommandList5>(device->CreateCommandList1<D3D12_COMMAND_LIST_TYPE_DIRECT>(0, D3D12_COMMAND_LIST_FLAG_NONE));
+		TypedD3D12::Direct<ID3D12GraphicsCommandList7> commandList = device->CreateCommandList1<D3D12_COMMAND_LIST_TYPE_DIRECT, ID3D12GraphicsCommandList7>(0, D3D12_COMMAND_LIST_FLAG_NONE);
 		TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandAllocator>, 2> commandAllocators
 		{
 			device->CreateCommandAllocator<D3D12_COMMAND_LIST_TYPE_DIRECT>(),
@@ -66,9 +68,21 @@ int main()
 				.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE,
 				.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL
 			};
-
-			return device->CreateCommittedResource(heapProperties, D3D12_HEAP_FLAG_NONE, description, D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr);
+			D3D12_CLEAR_VALUE clearValue
+			{
+				.Format = DXGI_FORMAT_D32_FLOAT,
+				.DepthStencil
+				{
+					.Depth = 0,
+					.Stencil = 0
+				}
+			};
+			return device->CreateCommittedResource(heapProperties, D3D12_HEAP_FLAG_NONE, description, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clearValue);
 		}();
+
+		{
+			device->CreateDepthStencilView(*depthBuffer.Get(), nullptr, DSVs->GetCPUDescriptorHandleForHeapStart());
+		}
 
 		std::array<D3D12_INPUT_ELEMENT_DESC, 2> elements
 		{
@@ -166,6 +180,7 @@ int main()
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
 			.NumRenderTargets = 1,
 			.RTVFormats = { DXGI_FORMAT_R8G8B8A8_UNORM_SRGB },
+			.DSVFormat = { DXGI_FORMAT_D32_FLOAT },
 			.SampleDesc = {.Count = 1 }
 		};
 
@@ -222,13 +237,12 @@ int main()
 					{ brb, right },
 				});
 
-			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, TypedD3D::Wrapper<ID3D12Device>{ device });
+			xk::D3D12::StagedBufferUpload vertexUpload = xk::D3D12::StageBufferUpload(std::span{ vertices }, device);
 
 			TypedD3D::Wrapper<ID3D12Resource> vertexResource = xk::D3D12::CreateBuffer(device, vertexUpload);
 			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
-				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList7, TypedD3D12::DirectTraits> commandList)
 			{
-
 				xk::D3D12::UploadBuffer(commandList, vertexResource, vertexUpload);
 				D3D12_BARRIER_GROUP group;
 				group.NumBarriers = 1;
@@ -238,9 +252,7 @@ int main()
 					.After(xk::D3D12::VertexBufferBarrier());
 				group.pBufferBarriers = &barrier;
 
-				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-				tempList.Get()->Release();
-				tempList->Barrier(1, &group);
+				commandList->Barrier({ &group, 1 });
 			});
 
 			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
@@ -263,11 +275,11 @@ int main()
 					20, 21, 22, 20, 22, 23, //Right Face
 				});
 
-			xk::D3D12::StagedBufferUpload indexUpload = xk::D3D12::StageBufferUpload(std::span{ indices }, TypedD3D::Wrapper<ID3D12Device>{ device });			
+			xk::D3D12::StagedBufferUpload indexUpload = xk::D3D12::StageBufferUpload(std::span{ indices }, device);			
 			
 			TypedD3D::Wrapper<ID3D12Resource> indexResource = xk::D3D12::CreateBuffer(device, indexUpload);
 			xk::D3D12::Record(commandList, commandAllocators[0].ToWrapper(), nullptr,
-				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+				[&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList7, TypedD3D12::DirectTraits> commandList)
 			{
 
 				xk::D3D12::UploadBuffer(commandList, indexResource, indexUpload);
@@ -279,12 +291,11 @@ int main()
 					.After(xk::D3D12::IndexBufferBarrier());
 				group.pBufferBarriers = &barrier;
 
-				Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-				tempList.Get()->Release();
-				tempList->Barrier(1, &group);
+				commandList->Barrier({ &group, 1 });
 			});
 
 			TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
+
 			swapChain.GetQueue().ExecuteCommandLists(submitList);
 			swapChain.GetQueue().GPUSignal();
 			swapChain.GetQueue().Flush();
@@ -393,43 +404,34 @@ int main()
 
 				swapChain.Frame([&](xk::D3D12::CommandQueue<D3D12_COMMAND_LIST_TYPE_DIRECT>& queue, UINT currentFrameIndex, TypedD3D12::RTV<D3D12_CPU_DESCRIPTOR_HANDLE> backBuffer)
 				{
-					Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> tempList = TypedD3D::Cast<ID3D12GraphicsCommandList7>(commandList.Get());
-					tempList.Get()->Release();
-
 					xk::D3D12::Record(commandList, commandAllocators[currentFrameIndex].ToWrapper(), pipeline.Get()
-						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList5, TypedD3D12::DirectTraits> commandList)
+						, [&](TypedD3D::IUnknownWrapper<ID3D12GraphicsCommandList7, TypedD3D12::DirectTraits> commandList)
 					{
-						D3D12_BARRIER_GROUP group;
-						group.NumBarriers = 1;
-						group.Type = D3D12_BARRIER_TYPE_TEXTURE;
-
-						D3D12_TEXTURE_BARRIER barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
+						xk::D3D12::ScopedBarrier(commandList,
+							xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
 							.Before(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON))
-							.After(xk::D3D12::RenderTargetTextureBarrier());
-						group.pTextureBarriers = &barrier;
-						tempList->Barrier(1, &group);
-
-						commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
-						commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, nullptr);
-						commandList->SetGraphicsRootSignature(nullSignature.Get());
-						commandList->RSSetViewports(std::span(&viewport, 1));
-						commandList->RSSetScissorRects(std::span(&rect, 1));
-						commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-						commandList->IASetVertexBuffers(0, std::span(&vertexBufferView, 1));
-						commandList->IASetIndexBuffer(&indexBufferView);
-						commandList->SetGraphicsRootConstantBufferView(0, constantBuffer.Upload(projectionMatrix * xk::Math::TransformMatrix(-cameraPos)));
-						commandList->SetGraphicsRootConstantBufferView(1, constantBuffer.Upload(objectRotation.ToRotationMatrix()* xk::Math::SquareMatrix<float, 4>::Identity()));
-						commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
-
-						barrier = xk::D3D12::TextureBarrier{ swapChain.GetBackBuffer().Get() }
-							.Before(xk::D3D12::RenderTargetTextureBarrier())
-							.After(xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON));
-						group.pTextureBarriers = &barrier;
-						tempList->Barrier(1, &group);
+							.After(xk::D3D12::RenderTargetTextureBarrier()),
+							xk::D3D12::NoAccessTextureBarrier(D3D12_BARRIER_LAYOUT_COMMON),
+							[&](TypedD3D12::Direct<ID3D12GraphicsCommandList7> commandList)
+						{
+							auto depthHandle = DSVs->GetCPUDescriptorHandleForHeapStart();
+							commandList->ClearRenderTargetView(backBuffer, std::array<const float, 4>{ 0.2f, 0.3f, 0.3f, 1.0f });
+							commandList->ClearDepthStencilView(depthHandle, D3D12_CLEAR_FLAG_DEPTH, 0, 0, {});
+							commandList->OMSetRenderTargets(std::span(&backBuffer, 1), true, &depthHandle);
+							commandList->SetGraphicsRootSignature(nullSignature.Get());
+							commandList->RSSetViewports(std::span(&viewport, 1));
+							commandList->RSSetScissorRects(std::span(&rect, 1));
+							commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+							commandList->IASetVertexBuffers(0, std::span(&vertexBufferView, 1));
+							commandList->IASetIndexBuffer(&indexBufferView);
+							commandList->SetGraphicsRootConstantBufferView(0, constantBuffer.Upload(projectionMatrix * xk::Math::TransformMatrix(-cameraPos)));
+							commandList->SetGraphicsRootConstantBufferView(1, constantBuffer.Upload(objectRotation.ToRotationMatrix() * xk::Math::SquareMatrix<float, 4>::Identity()));
+							commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
+						});
 					});
 
 					TypedD3D::Array<TypedD3D12::Direct<ID3D12CommandList>, 1> submitList{ commandList };
-					queue.ExecuteCommandLists(TypedD3D::Span{ submitList });
+					queue.ExecuteCommandLists(submitList);
 				});
 
 				previous = current;
